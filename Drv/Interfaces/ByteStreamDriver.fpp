@@ -7,7 +7,7 @@ module Drv {
         output port $recv: Drv.ByteStreamData
 
         @ Invoke this port to send data out the driver
-        guarded input port $send: Fw.BufferSend
+        guarded input port $send: Drv.ByteStreamSend
 
         @ Port returning ownership of data received on $send port
         output port sendReturnOut: Drv.ByteStreamData

@@ -14,7 +14,7 @@ module Svc {
         sync input port drvReceiveIn: Drv.ByteStreamData
 
         @ Send (write) data to the driver. This gets invoked on dataIn invocation
-        output port drvSendOut: Fw.BufferSend
+        output port drvSendOut: Drv.ByteStreamSend
 
         @ Callback from drvSendOut (retrieving status and ownership of sent buffer)
         sync input port drvSendReturnIn: Drv.ByteStreamData

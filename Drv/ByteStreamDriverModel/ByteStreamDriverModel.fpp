@@ -16,6 +16,10 @@ module Drv {
         status: ByteStreamStatus
     )
 
+    port ByteStreamSend(
+        ref sendBuffer: Fw.Buffer @< Data to send
+    ) -> ByteStreamStatus
+
     @ Signal indicating the driver is ready to send and received data
     port ByteStreamReady()
 

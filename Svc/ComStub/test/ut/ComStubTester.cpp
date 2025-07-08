@@ -174,8 +174,10 @@ void ComStubTester ::from_comStatusOut_handler(const FwIndexType portNum, Fw::Su
     this->pushFromPortEntry_comStatusOut(condition);
 }
 
-void ComStubTester ::from_drvSendOut_handler(const FwIndexType portNum, Fw::Buffer& sendBuffer) {
+Drv::ByteStreamStatus ComStubTester ::from_drvSendOut_handler(const FwIndexType portNum, Fw::Buffer& sendBuffer) {
     this->pushFromPortEntry_drvSendOut(sendBuffer);
+
+    return Drv::ByteStreamStatus::OP_OK;
 }
 
 

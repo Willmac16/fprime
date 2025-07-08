@@ -83,7 +83,7 @@ class ComStubTester : public ComStubGTestBase {
 
     //! Handler for from_drvSendOut
     //!
-    void from_drvSendOut_handler(const FwIndexType portNum, //!< The port number
+    Drv::ByteStreamStatus from_drvSendOut_handler(const FwIndexType portNum, //!< The port number
                                 Fw::Buffer& sendBuffer);
 
   private:

@@ -292,7 +292,7 @@ LinuxUartDriver ::~LinuxUartDriver() {
 // Handler implementations for user-defined typed input ports
 // ----------------------------------------------------------------------
 
-void LinuxUartDriver ::send_handler(const FwIndexType portNum, Fw::Buffer& serBuffer) {
+Drv::ByteStreamStatus LinuxUartDriver ::send_handler(const FwIndexType portNum, Fw::Buffer& serBuffer) {
     Drv::ByteStreamStatus status = Drv::ByteStreamStatus::OP_OK;
     if (this->m_fd == -1 || serBuffer.getData() == nullptr || serBuffer.getSize() == 0) {
         status = Drv::ByteStreamStatus::OTHER_ERROR;
@@ -312,6 +312,9 @@ void LinuxUartDriver ::send_handler(const FwIndexType portNum, Fw::Buffer& serBu
     }
     // Return the buffer back to the caller
     sendReturnOut_out(0, serBuffer, status);
+
+    // Syncronously return the status to the caller
+    return status;
 }
 
 
