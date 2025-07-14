@@ -2,6 +2,8 @@ telemetry packets RefPackets {
 
   packet CDH id 1 group 1 {
     CdhCore.cmdDisp.CommandsDispatched
+    # Uncomment the following line to use TlmPacketizer instead of TlmChan
+    # CdhCore.tlmSend.SendLevel
 
     FileHandling.fileUplink.FilesReceived
     FileHandling.fileUplink.PacketsReceived
@@ -18,7 +20,6 @@ telemetry packets RefPackets {
     ComCcsds.commsBufferManager.TotalBuffs
     ComCcsds.commsBufferManager.CurrBuffs
     ComCcsds.commsBufferManager.HiBuffs
-    #ComCcsds.tlmSend.SendLevel
 
     Ref.rateGroup1Comp.RgMaxTime
     Ref.rateGroup2Comp.RgMaxTime

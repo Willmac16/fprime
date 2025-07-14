@@ -57,6 +57,7 @@ logs
 test_harness/.autotools
 core
 
+*.swp
 *.swp4
 
 *AppDictionary.xml
