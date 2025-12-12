@@ -9,6 +9,7 @@
 #include <new>
 #include <sched.h>
 #include <climits>
+#include <Fw/Types/StringUtils.hpp>
 #include <Fw/Logger/Logger.hpp>
 
 #ifdef TGT_OS_TYPE_LINUX 
@@ -123,7 +124,26 @@ namespace Os {
         return Task::TASK_OK;
     }
 
-    Task::TaskStatus create_pthread(NATIVE_UINT_TYPE priority, NATIVE_UINT_TYPE stackSize, NATIVE_UINT_TYPE cpuAffinity, pthread_t*& tid, void* arg, bool expect_perm) {
+
+    Task::TaskStatus set_task_name(pthread_t thread, const Fw::StringBase &name) {
+      int status = 0;
+
+      // Construct a sixteen char long version of the task name
+      const FwSizeType PTHREAD_NAME_LENGTH = 16;
+      char name_sixteen_capped[PTHREAD_NAME_LENGTH];
+      Fw::StringUtils::string_copy(name_sixteen_capped, name.toChar(), PTHREAD_NAME_LENGTH);
+
+      status = pthread_setname_np(thread, name_sixteen_capped);
+      if (status == 0) {
+        return Task::TASK_OK;
+      } else {
+        return Task::TASK_INVALID_PARAMS;
+      }
+
+  }
+
+
+    Task::TaskStatus create_pthread(NATIVE_UINT_TYPE priority, NATIVE_UINT_TYPE stackSize, NATIVE_UINT_TYPE cpuAffinity, pthread_t*& tid, void* arg, bool expect_perm, const Fw::StringBase &name) {
         Task::TaskStatus tStat = Task::TASK_OK;
         validate_arguments(priority, stackSize, cpuAffinity, expect_perm);
         pthread_attr_t att;
@@ -155,8 +175,10 @@ namespace Os {
             return tStat;
         }
 
+
         tid = new pthread_t;
         const char* message = nullptr;
+
 
         stat = pthread_create(tid, &att, pthread_entry_wrapper, arg);
         switch (stat) {
@@ -187,6 +209,12 @@ namespace Os {
             Fw::Logger::logMsg("pthread_create: %s. %s\n", reinterpret_cast<POINTER_CAST>(message), reinterpret_cast<POINTER_CAST>(strerror(stat)));
             return tStat;
         }
+        // Set task name after creating thread:
+        tStat = set_task_name(*tid, name);
+        if (tStat != Task::TASK_OK) {
+            return tStat;
+        }
+
         return Task::TASK_OK;
     }
 
@@ -205,7 +233,7 @@ namespace Os {
         pthread_t* tid;
 
         // Try to create thread with assuming permissions
-        TaskStatus status = create_pthread(priority, stackSize, cpuAffinity, tid, &this->m_routineWrapper, true);
+        TaskStatus status = create_pthread(priority, stackSize, cpuAffinity, tid, &this->m_routineWrapper, true, name);
         // Failure due to permission automatically retried
         if (status == TASK_ERROR_PERMISSION) {
             Fw::Logger::logMsg("[WARNING] Insufficient Permissions:\n");
@@ -213,7 +241,7 @@ namespace Os {
             Fw::Logger::logMsg("[WARNING] Please use no-argument <component>.start() calls, set priority/affinity to TASK_DEFAULT or ensure user has correct permissions for operating system.\n");
             Fw::Logger::logMsg("[WARNING]      Note: future releases of fprime will fail when setting priority/affinity without sufficient permissions \n");
             Fw::Logger::logMsg("\n");
-            status = create_pthread(priority, stackSize, cpuAffinity, tid, &this->m_routineWrapper, false); // Fallback with no permission
+            status = create_pthread(priority, stackSize, cpuAffinity, tid, &this->m_routineWrapper, false, name); // Fallback with no permission
         }
         // Check for non-zero error code
         if (status != TASK_OK) {
