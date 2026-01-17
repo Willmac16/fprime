@@ -12,6 +12,7 @@ ALLEXTERNALS
 alphanums
 ampcs
 ANamespace
+aos
 apid
 APIDOCS
 APPENDFILE
@@ -39,6 +40,7 @@ bibtex
 Bies
 binaryfile
 BINDIR
+bitfield
 bitmaps
 bitshifts
 bitwidth
@@ -506,6 +508,7 @@ PASSIVERATEGROUP
 PASSIVERATEGROUPIMPLTESTER
 patsubst
 pdflatex
+pdu
 penv
 PERLMOD
 PHASERMEMBEROUT
