@@ -46,8 +46,10 @@ module Svc {
     @ Event input port
     sync input port LogRecv: Fw.Log
 
-    @ Packet send port
-    output port PktSend: Fw.Com
+    @ Packet send ports — one per Fw::LogSeverity value.
+    @ Port index = severity_value - 1  (FATAL=0 … DIAGNOSTIC=6).
+    @ The array size is driven by EventManagerCfg.NumSeverityPorts.
+    output port PktSend: [EventManagerCfg.NumSeverityPorts] Fw.Com
 
     @ FATAL event announce port
     output port FatalAnnounce: Svc.FatalEvent
