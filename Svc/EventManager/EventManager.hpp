@@ -3,11 +3,6 @@
  *
  *  Created on: Mar 28, 2014
  *      Author: tcanham
- *
- * Routes events to severity-indexed PktSend ports.  A single per-severity
- * boolean array (m_filterState) is the canonical filter state for both
- * FilterMode 0 (per-level) and FilterMode 1 (threshold); only the
- * SET_EVENT_FILTER command handler differs between the two modes.
  */
 
 #ifndef Svc_EventManager_HPP_
@@ -45,54 +40,39 @@ class EventManager final : public EventManagerComponentBase {
                                      EventManager_FilterSeverity filterLevel,
                                      EventManager_Enabled filterEnabled);
 
-    void SET_ID_FILTER_cmdHandler(FwOpcodeType opCode,
-                                  U32 cmdSeq,
+    void SET_ID_FILTER_cmdHandler(FwOpcodeType opCode,  //!< The opcode
+                                  U32 cmdSeq,           //!< The command sequence number
                                   FwEventIdType ID,
-                                  EventManager_Enabled idFilterEnabled);
+                                  EventManager_Enabled idFilterEnabled  //!< ID filter state
+    );
 
-    void DUMP_FILTER_STATE_cmdHandler(FwOpcodeType opCode,
-                                      U32 cmdSeq);
+    void DUMP_FILTER_STATE_cmdHandler(FwOpcodeType opCode,  //!< The opcode
+                                      U32 cmdSeq            //!< The command sequence number
+    );
 
-    void pingIn_handler(const FwIndexType portNum, U32 key);
+    //! Handler implementation for pingIn
+    void pingIn_handler(const FwIndexType portNum, /*!< The port number*/
+                        U32 key                    /*!< Value to return to pinger*/
+    );
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    //! Map Fw::LogSeverity to the PktSend port index.
-    //! Index = severity.e - 1  (FATAL=0 … DIAGNOSTIC=6).
-    static FwIndexType severityToPortIndex(Fw::LogSeverity severity);
-
-    //! Convert a FilterSeverity value to the equivalent Fw::LogSeverity.
-    //! FilterSeverity omits FATAL; its enum values are offset by 2 from
-    //! the corresponding Fw::LogSeverity values.
-    static Fw::LogSeverity filterSevToLogSev(EventManager_FilterSeverity fs);
-
-    //! (FilterMode 1 only) Set every m_filterState entry: ENABLED when the
-    //! level's LogSeverity <= threshold, DISABLED otherwise.
+    //! (FilterMode 1) Rewrite every m_filterState entry: ENABLED when the
+    //! corresponding LogSeverity <= threshold, DISABLED otherwise.
     void applyThreshold(Fw::LogSeverity threshold);
 
-    //! Return true when the event should be forwarded.
-    //! Applies both the severity filter and the ID filter; FATAL always passes.
-    bool shouldRoute(FwEventIdType id, const Fw::LogSeverity& severity) const;
-
-    // -----------------------------------------------------------------------
-    // Filter state — canonical for both modes
-    // -----------------------------------------------------------------------
-    //! Per-severity enable/disable array.  In FilterMode 0 each entry is
-    //! updated individually; in FilterMode 1 the whole array is recomputed
-    //! from the threshold on every SET_EVENT_FILTER call.  shouldRoute(),
-    //! DUMP_FILTER_STATE, and the constructor read only this array.
+    // Filter state — canonical for both FilterMode 0 and FilterMode 1.
+    // FilterMode 0: each entry updated individually by SET_EVENT_FILTER.
+    // FilterMode 1: all entries recomputed from the threshold by applyThreshold.
     struct t_filterState {
-        EventManager_Enabled enabled;
+        EventManager_Enabled enabled;  //<! filter is enabled
     } m_filterState[EventManager_FilterSeverity::NUM_CONSTANTS];
-
-    // array of filtered event IDs; value of 0 means no entry
-    FwEventIdType m_filteredIDs[TELEM_ID_FILTER_SIZE];
 
     // Working members
     Fw::LogPacket m_logPacket;  //!< packet buffer for assembling log packets
     Fw::ComBuffer m_comBuffer;  //!< com buffer for sending event buffers
+
+    // array of filtered event IDs.
+    // value of 0 means no entry
+    FwEventIdType m_filteredIDs[TELEM_ID_FILTER_SIZE];
 };
 
 }  // namespace Svc
