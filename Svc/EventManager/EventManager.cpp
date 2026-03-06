@@ -19,24 +19,39 @@ typedef EventManager_Enabled Enabled;
 typedef EventManager_FilterSeverity FilterSeverity;
 
 EventManager::EventManager(const char* name) : EventManagerComponentBase(name) {
-    // set filter defaults
-    this->m_filterState[FilterSeverity::WARNING_HI].enabled =
-        FILTER_WARNING_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::WARNING_LO].enabled =
-        FILTER_WARNING_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::COMMAND].enabled =
-        FILTER_COMMAND_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::ACTIVITY_HI].enabled =
-        FILTER_ACTIVITY_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::ACTIVITY_LO].enabled =
-        FILTER_ACTIVITY_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::DIAGNOSTIC].enabled =
-        FILTER_DIAGNOSTIC_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+    if (EventManagerCfg::FilterMode == 1) {
+        // Threshold mode: derive initial state from the HPP default
+        applyThreshold(Fw::LogSeverity(
+            static_cast<Fw::LogSeverity::t>(FILTER_MIN_SEVERITY_DEFAULT)));
+    } else {
+        // set filter defaults
+        this->m_filterState[FilterSeverity::WARNING_HI].enabled =
+            FILTER_WARNING_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        this->m_filterState[FilterSeverity::WARNING_LO].enabled =
+            FILTER_WARNING_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        this->m_filterState[FilterSeverity::COMMAND].enabled =
+            FILTER_COMMAND_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        this->m_filterState[FilterSeverity::ACTIVITY_HI].enabled =
+            FILTER_ACTIVITY_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        this->m_filterState[FilterSeverity::ACTIVITY_LO].enabled =
+            FILTER_ACTIVITY_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        this->m_filterState[FilterSeverity::DIAGNOSTIC].enabled =
+            FILTER_DIAGNOSTIC_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+    }
 
     memset(m_filteredIDs, 0, sizeof(m_filteredIDs));
 }
 
 EventManager::~EventManager() {}
+
+void EventManager::applyThreshold(Fw::LogSeverity threshold) {
+    // FilterSeverity ordinal + 2 == the corresponding Fw::LogSeverity value
+    // (FilterSeverity omits FATAL and starts at WARNING_HI = 0).
+    for (FwEnumStoreType i = 0; i < FilterSeverity::NUM_CONSTANTS; i++) {
+        m_filterState[i].enabled =
+            (static_cast<Fw::LogSeverity::t>(i + 2) <= threshold.e) ? Enabled::ENABLED : Enabled::DISABLED;
+    }
+}
 
 void EventManager::LogRecv_handler(FwIndexType portNum,
                                    FwEventIdType id,
@@ -50,35 +65,19 @@ void EventManager::LogRecv_handler(FwIndexType portNum,
         case Fw::LogSeverity::FATAL:  // always pass FATAL
             break;
         case Fw::LogSeverity::WARNING_HI:
-            if (this->m_filterState[FilterSeverity::WARNING_HI].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
         case Fw::LogSeverity::WARNING_LO:
-            if (this->m_filterState[FilterSeverity::WARNING_LO].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
         case Fw::LogSeverity::COMMAND:
-            if (this->m_filterState[FilterSeverity::COMMAND].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
         case Fw::LogSeverity::ACTIVITY_HI:
-            if (this->m_filterState[FilterSeverity::ACTIVITY_HI].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
         case Fw::LogSeverity::ACTIVITY_LO:
-            if (this->m_filterState[FilterSeverity::ACTIVITY_LO].enabled == Enabled::DISABLED) {
+        case Fw::LogSeverity::DIAGNOSTIC: {
+            // m_filterState is unified for both FilterModes.
+            // FilterSeverity.e = LogSeverity.e - 2 for non-FATAL severities.
+            auto filterSevE = static_cast<FilterSeverity::t>(severity.e - 2);
+            if (m_filterState[filterSevE].enabled == Enabled::DISABLED) {
                 return;
             }
             break;
-        case Fw::LogSeverity::DIAGNOSTIC:
-            if (this->m_filterState[FilterSeverity::DIAGNOSTIC].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
+        }
         default:
             FW_ASSERT(0, static_cast<FwAssertArgType>(severity.e));
             return;
@@ -114,8 +113,10 @@ void EventManager::loqQueue_internalInterfaceHandler(FwEventIdType id,
     Fw::SerializeStatus stat = this->m_logPacket.serializeTo(this->m_comBuffer);
     FW_ASSERT(Fw::FW_SERIALIZE_OK == stat, static_cast<FwAssertArgType>(stat));
 
-    if (this->isConnected_PktSend_OutputPort(0)) {
-        this->PktSend_out(0, this->m_comBuffer, 0);
+    // Port index = severity value - 1  (FATAL=0 … DIAGNOSTIC=6)
+    FwIndexType portIdx = static_cast<FwIndexType>(severity.e - 1);
+    if (this->isConnected_PktSend_OutputPort(portIdx)) {
+        this->PktSend_out(portIdx, this->m_comBuffer, 0);
     }
 }
 
@@ -123,7 +124,19 @@ void EventManager::SET_EVENT_FILTER_cmdHandler(FwOpcodeType opCode,
                                                U32 cmdSeq,
                                                FilterSeverity filterLevel,
                                                Enabled filterEnable) {
-    this->m_filterState[filterLevel.e].enabled = filterEnable;
+    if (EventManagerCfg::FilterMode == 1) {
+        // Threshold mode: ENABLED sets threshold to include filterLevel and
+        // everything more severe; DISABLED raises it one step so filterLevel
+        // and everything less severe are dropped.  applyThreshold clamps
+        // naturally when the computed value equals FATAL (1).
+        Fw::LogSeverity::t thresh = static_cast<Fw::LogSeverity::t>(filterLevel.e + 2);
+        if (filterEnable == Enabled::DISABLED) {
+            thresh--;
+        }
+        applyThreshold(Fw::LogSeverity(thresh));
+    } else {
+        this->m_filterState[filterLevel.e].enabled = filterEnable;
+    }
     this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::OK);
 }
 

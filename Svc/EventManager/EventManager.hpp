@@ -16,6 +16,10 @@ namespace Svc {
 
 class EventManager final : public EventManagerComponentBase {
   public:
+    //! Number of PktSend output ports (one per Fw::LogSeverity value).
+    //! Port index = severity_value - 1  (FATAL=0 … DIAGNOSTIC=6).
+    static constexpr FwIndexType NUM_SEVERITY_PORTS = EventManagerCfg::NumSeverityPorts;
+
     EventManager(const char* compName);  //!< constructor
     virtual ~EventManager();             //!< destructor
 
@@ -47,12 +51,17 @@ class EventManager final : public EventManagerComponentBase {
     );
 
     //! Handler implementation for pingIn
-    //!
     void pingIn_handler(const FwIndexType portNum, /*!< The port number*/
                         U32 key                    /*!< Value to return to pinger*/
     );
 
-    // Filter state
+    //! (FilterMode 1) Rewrite every m_filterState entry: ENABLED when the
+    //! corresponding LogSeverity <= threshold, DISABLED otherwise.
+    void applyThreshold(Fw::LogSeverity threshold);
+
+    // Filter state — canonical for both FilterMode 0 and FilterMode 1.
+    // FilterMode 0: each entry updated individually by SET_EVENT_FILTER.
+    // FilterMode 1: all entries recomputed from the threshold by applyThreshold.
     struct t_filterState {
         EventManager_Enabled enabled;  //<! filter is enabled
     } m_filterState[EventManager_FilterSeverity::NUM_CONSTANTS];
