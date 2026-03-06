@@ -4,10 +4,10 @@
  *  Created on: Mar 28, 2014
  *      Author: tcanham
  *
- * Tweaked to route incoming events to severity-indexed PktSend ports rather
- * than a single port, and to support a minimum-severity threshold filter
- * (EventManagerCfg::FilterMode == 1) alongside the legacy per-severity
- * enable/disable mode (EventManagerCfg::FilterMode == 0).
+ * Routes events to severity-indexed PktSend ports.  A single per-severity
+ * boolean array (m_filterState) is the canonical filter state for both
+ * FilterMode 0 (per-level) and FilterMode 1 (threshold); only the
+ * SET_EVENT_FILTER command handler differs between the two modes.
  */
 
 #ifndef Svc_EventManager_HPP_
@@ -68,28 +68,25 @@ class EventManager final : public EventManagerComponentBase {
     //! the corresponding Fw::LogSeverity values.
     static Fw::LogSeverity filterSevToLogSev(EventManager_FilterSeverity fs);
 
+    //! (FilterMode 1 only) Set every m_filterState entry: ENABLED when the
+    //! level's LogSeverity <= threshold, DISABLED otherwise.
+    void applyThreshold(Fw::LogSeverity threshold);
+
     //! Return true when the event should be forwarded.
     //! Applies both the severity filter and the ID filter; FATAL always passes.
     bool shouldRoute(FwEventIdType id, const Fw::LogSeverity& severity) const;
 
     // -----------------------------------------------------------------------
-    // Filter state — FilterMode 0: per-severity enable/disable (legacy)
+    // Filter state — canonical for both modes
     // -----------------------------------------------------------------------
+    //! Per-severity enable/disable array.  In FilterMode 0 each entry is
+    //! updated individually; in FilterMode 1 the whole array is recomputed
+    //! from the threshold on every SET_EVENT_FILTER call.  shouldRoute(),
+    //! DUMP_FILTER_STATE, and the constructor read only this array.
     struct t_filterState {
-        EventManager_Enabled enabled;  //<! filter is enabled
+        EventManager_Enabled enabled;
     } m_filterState[EventManager_FilterSeverity::NUM_CONSTANTS];
 
-    // -----------------------------------------------------------------------
-    // Filter state — FilterMode 1: minimum-severity threshold (new)
-    // -----------------------------------------------------------------------
-    //! Least-severe severity that is still forwarded (higher enum value =
-    //! less severe in fprime). Events with severity.e > m_minSeverity.e are
-    //! dropped. FATAL always passes regardless of this value.
-    Fw::LogSeverity m_minSeverity;
-
-    // -----------------------------------------------------------------------
-    // ID filter (both modes)
-    // -----------------------------------------------------------------------
     // array of filtered event IDs; value of 0 means no entry
     FwEventIdType m_filteredIDs[TELEM_ID_FILTER_SIZE];
 
