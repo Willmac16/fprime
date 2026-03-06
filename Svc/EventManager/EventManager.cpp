@@ -87,9 +87,10 @@ bool EventManager::shouldRoute(FwEventIdType id, const Fw::LogSeverity& severity
 
 EventManager::EventManager(const char* name) : EventManagerComponentBase(name) {
     if (EventManagerCfg::FilterMode == 1) {
-        // Threshold mode: initialise to the configured default
+        // Threshold mode: initialise from the HPP constant so both config
+        // files share the same source of truth for the default value.
         m_minSeverity = Fw::LogSeverity(
-            static_cast<Fw::LogSeverity::t>(EventManagerCfg::MinSeverityDefault));
+            static_cast<Fw::LogSeverity::t>(FILTER_MIN_SEVERITY_DEFAULT));
     } else {
         // Per-level mode: set defaults from EventManagerCfg.hpp
         m_filterState[FilterSeverity::WARNING_HI].enabled =

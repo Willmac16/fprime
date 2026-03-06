@@ -20,7 +20,9 @@ module Svc {
     @     FATAL always passes in both modes.
     constant FilterMode = 1
 
-    @ Default minimum severity for FilterMode = 1.
+    @ Default minimum severity for FilterMode = 1 (documentation only).
+    @ The C++ constructor uses FILTER_MIN_SEVERITY_DEFAULT from
+    @ EventManagerCfg.hpp as the authoritative default; keep both in sync.
     @ Matches Fw::LogSeverity values: FATAL=1 ... DIAGNOSTIC=7.
     @ Default of 6 (ACTIVITY_LO) mirrors the legacy EventManager default
     @ that passes everything except DIAGNOSTIC events.
