@@ -1,11 +1,12 @@
 /*
- * TestCommand1Impl.cpp
+ * EventManager.cpp
  *
  *  Created on: Mar 28, 2014
  *      Author: tcanham
  */
 
 #include <cstdio>
+#include <limits>
 
 #include <Fw/Types/Assert.hpp>
 #include <Os/File.hpp>
@@ -13,100 +14,140 @@
 #include <cstring>
 
 namespace Svc {
+
 static_assert(std::numeric_limits<FwSizeType>::max() >= TELEM_ID_FILTER_SIZE,
               "TELEM_ID_FILTER_SIZE must fit within range of FwSizeType");
+
 typedef EventManager_Enabled Enabled;
 typedef EventManager_FilterSeverity FilterSeverity;
 
+// ---------------------------------------------------------------------------
+// Helper: map Fw::LogSeverity → PktSend port index
+// ---------------------------------------------------------------------------
+
+FwIndexType EventManager::severityToPortIndex(Fw::LogSeverity severity) {
+    // Fw::LogSeverity values: FATAL=1 … DIAGNOSTIC=7.
+    // Port index = value - 1  (FATAL→0, WARNING_HI→1, …, DIAGNOSTIC→6).
+    FW_ASSERT(severity.e >= static_cast<Fw::LogSeverity::t>(1) &&
+                  severity.e <= static_cast<Fw::LogSeverity::t>(NUM_SEVERITY_PORTS),
+              static_cast<FwAssertArgType>(severity.e));
+    return static_cast<FwIndexType>(severity.e - 1);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: FilterSeverity → Fw::LogSeverity
+// FilterSeverity omits FATAL; its ordinals are offset by 2 from LogSeverity:
+//   FilterSeverity::WARNING_HI (0) <-> Fw::LogSeverity::WARNING_HI (2)
+// ---------------------------------------------------------------------------
+
+Fw::LogSeverity EventManager::filterSevToLogSev(EventManager_FilterSeverity fs) {
+    return Fw::LogSeverity(static_cast<Fw::LogSeverity::t>(fs.e + 2));
+}
+
+// ---------------------------------------------------------------------------
+// Helper: decide whether to forward this event.
+// FATAL always passes.  Other events are checked against the severity filter
+// (mode-dependent) and then the ID filter.
+// ---------------------------------------------------------------------------
+
+bool EventManager::shouldRoute(FwEventIdType id, const Fw::LogSeverity& severity) const {
+    // FATAL is unconditional
+    if (severity.e == Fw::LogSeverity::FATAL) {
+        return true;
+    }
+
+    // Severity filter
+    if (EventManagerCfg::FilterMode == 1) {
+        // Threshold mode: drop if less severe than m_minSeverity
+        if (severity.e > m_minSeverity.e) {
+            return false;
+        }
+    } else {
+        // Per-level mode (legacy): look up the filter state for this severity.
+        // LogSeverity.e - 2 = FilterSeverity.e for non-FATAL severities.
+        auto filterSevE = static_cast<FilterSeverity::t>(severity.e - 2);
+        if (m_filterState[filterSevE].enabled == Enabled::DISABLED) {
+            return false;
+        }
+    }
+
+    // ID filter — applies regardless of mode
+    for (FwSizeType entry = 0; entry < TELEM_ID_FILTER_SIZE; entry++) {
+        if (m_filteredIDs[entry] == id) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Constructor
+// ---------------------------------------------------------------------------
+
 EventManager::EventManager(const char* name) : EventManagerComponentBase(name) {
-    // set filter defaults
-    this->m_filterState[FilterSeverity::WARNING_HI].enabled =
-        FILTER_WARNING_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::WARNING_LO].enabled =
-        FILTER_WARNING_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::COMMAND].enabled =
-        FILTER_COMMAND_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::ACTIVITY_HI].enabled =
-        FILTER_ACTIVITY_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::ACTIVITY_LO].enabled =
-        FILTER_ACTIVITY_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
-    this->m_filterState[FilterSeverity::DIAGNOSTIC].enabled =
-        FILTER_DIAGNOSTIC_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+    if (EventManagerCfg::FilterMode == 1) {
+        // Threshold mode: initialise to the configured default
+        m_minSeverity = Fw::LogSeverity(
+            static_cast<Fw::LogSeverity::t>(EventManagerCfg::MinSeverityDefault));
+    } else {
+        // Per-level mode: set defaults from EventManagerCfg.hpp
+        m_filterState[FilterSeverity::WARNING_HI].enabled =
+            FILTER_WARNING_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        m_filterState[FilterSeverity::WARNING_LO].enabled =
+            FILTER_WARNING_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        m_filterState[FilterSeverity::COMMAND].enabled =
+            FILTER_COMMAND_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        m_filterState[FilterSeverity::ACTIVITY_HI].enabled =
+            FILTER_ACTIVITY_HI_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        m_filterState[FilterSeverity::ACTIVITY_LO].enabled =
+            FILTER_ACTIVITY_LO_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+        m_filterState[FilterSeverity::DIAGNOSTIC].enabled =
+            FILTER_DIAGNOSTIC_DEFAULT ? Enabled::ENABLED : Enabled::DISABLED;
+    }
 
     memset(m_filteredIDs, 0, sizeof(m_filteredIDs));
 }
 
 EventManager::~EventManager() {}
 
+// ---------------------------------------------------------------------------
+// LogRecv_handler — synchronous path; runs on the caller's thread.
+// Applies filters then enqueues the event for the component thread.
+// ---------------------------------------------------------------------------
+
 void EventManager::LogRecv_handler(FwIndexType portNum,
                                    FwEventIdType id,
                                    Fw::Time& timeTag,
                                    const Fw::LogSeverity& severity,
                                    Fw::LogBuffer& args) {
-    // make sure ID is not zero. Zero is reserved for ID filter.
+    // make sure ID is not zero (reserved for ID filter sentinel)
     FW_ASSERT(id != 0);
 
-    switch (severity.e) {
-        case Fw::LogSeverity::FATAL:  // always pass FATAL
-            break;
-        case Fw::LogSeverity::WARNING_HI:
-            if (this->m_filterState[FilterSeverity::WARNING_HI].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
-        case Fw::LogSeverity::WARNING_LO:
-            if (this->m_filterState[FilterSeverity::WARNING_LO].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
-        case Fw::LogSeverity::COMMAND:
-            if (this->m_filterState[FilterSeverity::COMMAND].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
-        case Fw::LogSeverity::ACTIVITY_HI:
-            if (this->m_filterState[FilterSeverity::ACTIVITY_HI].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
-        case Fw::LogSeverity::ACTIVITY_LO:
-            if (this->m_filterState[FilterSeverity::ACTIVITY_LO].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
-        case Fw::LogSeverity::DIAGNOSTIC:
-            if (this->m_filterState[FilterSeverity::DIAGNOSTIC].enabled == Enabled::DISABLED) {
-                return;
-            }
-            break;
-        default:
-            FW_ASSERT(0, static_cast<FwAssertArgType>(severity.e));
-            return;
+    if (!shouldRoute(id, severity)) {
+        return;
     }
 
-    // check ID filters
-    for (FwSizeType entry = 0; entry < TELEM_ID_FILTER_SIZE; entry++) {
-        if ((m_filteredIDs[entry] == id) && (severity != Fw::LogSeverity::FATAL)) {
-            return;
-        }
-    }
-
-    // send event to the logger thread
+    // Enqueue for the component thread
     this->loqQueue_internalInterfaceInvoke(id, timeTag, severity, args);
 
-    // if connected, announce the FATAL
-    if (Fw::LogSeverity::FATAL == severity.e) {
+    // Announce FATAL events synchronously before dispatch
+    if (severity.e == Fw::LogSeverity::FATAL) {
         if (this->isConnected_FatalAnnounce_OutputPort(0)) {
             this->FatalAnnounce_out(0, id);
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// loqQueue_internalInterfaceHandler — runs on the component thread.
+// Serialises and sends the event on the severity-indexed PktSend port.
+// ---------------------------------------------------------------------------
+
 void EventManager::loqQueue_internalInterfaceHandler(FwEventIdType id,
                                                      const Fw::Time& timeTag,
                                                      const Fw::LogSeverity& severity,
                                                      const Fw::LogBuffer& args) {
-    // Serialize event
     this->m_logPacket.setId(id);
     this->m_logPacket.setTimeTag(timeTag);
     this->m_logPacket.setLogBuffer(args);
@@ -114,26 +155,56 @@ void EventManager::loqQueue_internalInterfaceHandler(FwEventIdType id,
     Fw::SerializeStatus stat = this->m_logPacket.serializeTo(this->m_comBuffer);
     FW_ASSERT(Fw::FW_SERIALIZE_OK == stat, static_cast<FwAssertArgType>(stat));
 
-    if (this->isConnected_PktSend_OutputPort(0)) {
-        this->PktSend_out(0, this->m_comBuffer, 0);
+    FwIndexType portIdx = severityToPortIndex(severity);
+    if (this->isConnected_PktSend_OutputPort(portIdx)) {
+        this->PktSend_out(portIdx, this->m_comBuffer, 0);
     }
 }
+
+// ---------------------------------------------------------------------------
+// SET_EVENT_FILTER_cmdHandler
+//   FilterMode == 1 (threshold):
+//     ENABLED  -> m_minSeverity = filterLevel's LogSeverity (include it)
+//     DISABLED -> raise threshold one step (exclude filterLevel and below)
+//   FilterMode == 0 (per-level legacy):
+//     Updates m_filterState[filterLevel] directly.
+// ---------------------------------------------------------------------------
 
 void EventManager::SET_EVENT_FILTER_cmdHandler(FwOpcodeType opCode,
                                                U32 cmdSeq,
                                                FilterSeverity filterLevel,
-                                               Enabled filterEnable) {
-    this->m_filterState[filterLevel.e].enabled = filterEnable;
+                                               Enabled filterEnabled) {
+    if (EventManagerCfg::FilterMode == 1) {
+        Fw::LogSeverity logSev = filterSevToLogSev(filterLevel);
+        if (filterEnabled == Enabled::ENABLED) {
+            // Include this level and everything more severe
+            m_minSeverity = logSev;
+        } else {
+            // Exclude this level: raise threshold to one step more severe.
+            // Clamp at Fw::LogSeverity::FATAL (1).
+            Fw::LogSeverity::t newThresh =
+                static_cast<Fw::LogSeverity::t>(logSev.e - 1);
+            if (newThresh < static_cast<Fw::LogSeverity::t>(Fw::LogSeverity::FATAL)) {
+                newThresh = static_cast<Fw::LogSeverity::t>(Fw::LogSeverity::FATAL);
+            }
+            m_minSeverity = Fw::LogSeverity(newThresh);
+        }
+    } else {
+        m_filterState[filterLevel.e].enabled = filterEnabled;
+    }
+
     this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::OK);
 }
 
-void EventManager::SET_ID_FILTER_cmdHandler(FwOpcodeType opCode,  //!< The opcode
-                                            U32 cmdSeq,           //!< The command sequence number
+// ---------------------------------------------------------------------------
+// SET_ID_FILTER_cmdHandler (unchanged from original EventManager)
+// ---------------------------------------------------------------------------
+
+void EventManager::SET_ID_FILTER_cmdHandler(FwOpcodeType opCode,
+                                            U32 cmdSeq,
                                             FwEventIdType ID,
-                                            Enabled idEnabled  //!< ID filter state
-) {
+                                            Enabled idEnabled) {
     if (Enabled::ENABLED == idEnabled.e) {  // add ID
-        // search list for existing entry
         for (FwSizeType entry = 0; entry < TELEM_ID_FILTER_SIZE; entry++) {
             if (this->m_filteredIDs[entry] == ID) {
                 this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::OK);
@@ -141,7 +212,6 @@ void EventManager::SET_ID_FILTER_cmdHandler(FwOpcodeType opCode,  //!< The opcod
                 return;
             }
         }
-        // if not already a match, search for an open slot
         for (FwSizeType entry = 0; entry < TELEM_ID_FILTER_SIZE; entry++) {
             if (this->m_filteredIDs[entry] == 0) {
                 this->m_filteredIDs[entry] = ID;
@@ -150,36 +220,43 @@ void EventManager::SET_ID_FILTER_cmdHandler(FwOpcodeType opCode,  //!< The opcod
                 return;
             }
         }
-        // if an empty slot was not found, send an error event
         this->log_WARNING_LO_ID_FILTER_LIST_FULL(ID);
         this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::EXECUTION_ERROR);
     } else {  // remove ID
-        // search list for existing entry
         for (FwSizeType entry = 0; entry < TELEM_ID_FILTER_SIZE; entry++) {
             if (this->m_filteredIDs[entry] == ID) {
-                this->m_filteredIDs[entry] = 0;  // zero entry
+                this->m_filteredIDs[entry] = 0;
                 this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::OK);
                 this->log_ACTIVITY_HI_ID_FILTER_REMOVED(ID);
                 return;
             }
         }
-        // if it gets here, wasn't found
         this->log_WARNING_LO_ID_FILTER_NOT_FOUND(ID);
         this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::EXECUTION_ERROR);
     }
 }
 
-void EventManager::DUMP_FILTER_STATE_cmdHandler(FwOpcodeType opCode,  //!< The opcode
-                                                U32 cmdSeq            //!< The command sequence number
-) {
-    // first, iterate through severity filters
+// ---------------------------------------------------------------------------
+// DUMP_FILTER_STATE_cmdHandler
+// ---------------------------------------------------------------------------
+
+void EventManager::DUMP_FILTER_STATE_cmdHandler(FwOpcodeType opCode,
+                                                U32 cmdSeq) {
     for (FwEnumStoreType filter = 0; filter < FilterSeverity::NUM_CONSTANTS; filter++) {
         FilterSeverity filterState(static_cast<FilterSeverity::t>(filter));
-        this->log_ACTIVITY_LO_SEVERITY_FILTER_STATE(filterState,
-                                                    Enabled::ENABLED == this->m_filterState[filter].enabled.e);
+        bool enabled;
+
+        if (EventManagerCfg::FilterMode == 1) {
+            // Threshold mode: a level is "enabled" when its LogSeverity <= m_minSeverity
+            Fw::LogSeverity logSev = filterSevToLogSev(filterState);
+            enabled = (logSev.e <= m_minSeverity.e);
+        } else {
+            enabled = (Enabled::ENABLED == m_filterState[filter].enabled.e);
+        }
+
+        this->log_ACTIVITY_LO_SEVERITY_FILTER_STATE(filterState, enabled);
     }
 
-    // iterate through ID filter
     for (FwSizeType entry = 0; entry < TELEM_ID_FILTER_SIZE; entry++) {
         if (this->m_filteredIDs[entry] != 0) {
             this->log_ACTIVITY_HI_ID_FILTER_ENABLED(this->m_filteredIDs[entry]);
@@ -189,8 +266,11 @@ void EventManager::DUMP_FILTER_STATE_cmdHandler(FwOpcodeType opCode,  //!< The o
     this->cmdResponse_out(opCode, cmdSeq, Fw::CmdResponse::OK);
 }
 
+// ---------------------------------------------------------------------------
+// pingIn_handler
+// ---------------------------------------------------------------------------
+
 void EventManager::pingIn_handler(const FwIndexType portNum, U32 key) {
-    // return key
     this->pingOut_out(0, key);
 }
 
