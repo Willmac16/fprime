@@ -21,6 +21,11 @@ TEST(OffNominal, FileHandling) {
     tester.runOffNominalTest();
 }
 
+TEST(Nominal, StderrThreshold) {
+    Svc::ActiveTextLoggerTester tester;
+    tester.testStderrThreshold();
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

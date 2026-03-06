@@ -4,7 +4,10 @@
 // acknowledged.
 
 #include "ActiveTextLoggerTester.hpp"
+#include <fcntl.h>
 #include <fstream>
+#include <unistd.h>
+#include "Fw/Logger/test/ut/FakeLogger.hpp"
 #include "Fw/Types/StringUtils.hpp"
 
 #define INSTANCE 0
@@ -360,6 +363,71 @@ void ActiveTextLoggerTester ::testWorkstationTimestamp() {
 
     // Clean up:
     remove(logFileName);
+}
+
+void ActiveTextLoggerTester ::testStderrThreshold() {
+    printf("Testing stderr threshold routing\n");
+
+    // Configure threshold: events at WARNING_HI (2) or more severe go to stderr
+    this->component.configure(nullptr, 0, Fw::LogSeverity::WARNING_HI);
+
+    // Register a fake stdout logger to detect which messages go to stdout
+    MockLogging::FakeLogger fakeLogger;
+    Fw::Logger::registerLogger(&fakeLogger);
+
+    // Redirect stderr to a temp file so we can inspect it
+    int saved_stderr = dup(STDERR_FILENO);
+    ASSERT_NE(-1, saved_stderr);
+    int tmp_fd = open("test_stderr_out.txt", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    ASSERT_NE(-1, tmp_fd);
+    dup2(tmp_fd, STDERR_FILENO);
+    close(tmp_fd);
+
+    // --- Message BELOW threshold: should go to stdout (fake logger), not stderr ---
+    fakeLogger.reset();
+    FwEventIdType id = 42;
+    Fw::Time timeTag(TimeBase::TB_NONE, 1, 2);
+    // ACTIVITY_HI (5) is below WARNING_HI (2) in severity; if threshold is WARNING_HI,
+    // ACTIVITY_HI should go to stdout
+    Fw::LogSeverity lowSeverity = Fw::LogSeverity::ACTIVITY_HI;
+    Fw::TextLogString lowText("This should go to stdout");
+    this->invoke_to_TextLogger(0, id, timeTag, lowSeverity, lowText);
+    this->component.doDispatch();
+
+    // Stdout logger should have been called
+    ASSERT_NE(std::string(""), fakeLogger.m_last)
+        << "Expected stdout logger to receive ACTIVITY_HI message when threshold is WARNING_HI";
+
+    // --- Message AT/ABOVE threshold: should go to stderr, not stdout ---
+    fakeLogger.reset();
+    Fw::LogSeverity highSeverity = Fw::LogSeverity::FATAL;
+    Fw::TextLogString highText("This should go to stderr");
+    // FATAL bypasses the queue and goes directly to stderr on the caller's thread,
+    // so do NOT call doDispatch() (queue is empty; dispatch would block).
+    this->invoke_to_TextLogger(0, id, timeTag, highSeverity, highText);
+
+    // Stdout logger should NOT have been called for a FATAL event
+    ASSERT_EQ(std::string(""), fakeLogger.m_last)
+        << "Expected FATAL message to bypass stdout logger when threshold is WARNING_HI";
+
+    // Check stderr output contains the FATAL message
+    fflush(stderr);
+    dup2(saved_stderr, STDERR_FILENO);
+    close(saved_stderr);
+
+    std::ifstream stderrStream("test_stderr_out.txt");
+    std::string stderrContent((std::istreambuf_iterator<char>(stderrStream)),
+                               std::istreambuf_iterator<char>());
+    stderrStream.close();
+
+    ASSERT_NE(std::string::npos, stderrContent.find("FATAL"))
+        << "Expected FATAL message in stderr output";
+    ASSERT_NE(std::string::npos, stderrContent.find(highText.toChar()))
+        << "Expected message text in stderr output";
+
+    // Cleanup
+    remove("test_stderr_out.txt");
+    Fw::Logger::registerLogger(nullptr);
 }
 
 // ----------------------------------------------------------------------

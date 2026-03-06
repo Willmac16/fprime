@@ -33,6 +33,7 @@ class ActiveTextLoggerTester : public ActiveTextLoggerGTestBase {
     void runNominalTest();
     void runOffNominalTest();
     void testWorkstationTimestamp();
+    void testStderrThreshold();
 
   private:
     // ----------------------------------------------------------------------

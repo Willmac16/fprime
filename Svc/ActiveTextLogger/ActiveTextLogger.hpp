@@ -6,6 +6,7 @@
 #ifndef ACTIVETEXTLOGGERIMPL_HPP_
 #define ACTIVETEXTLOGGERIMPL_HPP_
 
+#include <Fw/Log/LogSeverityEnumAc.hpp>
 #include <Svc/ActiveTextLogger/ActiveTextLoggerComponentAc.hpp>
 #include <Svc/ActiveTextLogger/LogFile.hpp>
 #include <config/ActiveTextLoggerCfg.hpp>
@@ -50,8 +51,19 @@ class ActiveTextLogger final : public ActiveTextLoggerComponentBase {
     //!  \return true if creating the file was successful, false otherwise
     bool set_log_file(const char* fileName, const U32 maxSize, const U32 maxBackups = 10);
 
-    //! Configure component with event ID filters
-    void configure(const FwEventIdType* filteredIds, FwSizeType count);
+    //! Configure component with event ID filters and optional stderr threshold.
+    //!
+    //! \param filteredIds  Array of event IDs to suppress (may be nullptr when count == 0).
+    //! \param count        Number of IDs in filteredIds.
+    //! \param stderrThreshold  Events whose severity enum value is <= this value are emitted to
+    //!                         stderr instead of stdout (bypassing the queue).  Use
+    //!                         Fw::LogSeverity::T values, e.g. Fw::LogSeverity::WARNING_HI.
+    //!                         Defaults to the compile-time ACTIVE_TEXT_LOGGER_STDERR_THRESHOLD
+    //!                         (0 = all to stdout).
+    void configure(const FwEventIdType* filteredIds,
+                   FwSizeType count,
+                   Fw::LogSeverity::T stderrThreshold =
+                       static_cast<Fw::LogSeverity::T>(ACTIVE_TEXT_LOGGER_STDERR_THRESHOLD));
 
   private:
     // ----------------------------------------------------------------------
@@ -108,6 +120,10 @@ class ActiveTextLogger final : public ActiveTextLoggerComponentBase {
     // Event ID filters
     FwSizeType m_numFilteredIDs;
     FwEventIdType m_filteredIDs[ACTIVE_TEXT_LOGGER_ID_FILTER_SIZE];
+
+    //! Severity threshold: events with severity.e <= m_stderrThreshold go to stderr immediately.
+    //! Initialised from ACTIVE_TEXT_LOGGER_STDERR_THRESHOLD (0 = disabled).
+    Fw::LogSeverity::T m_stderrThreshold;
 };
 
 }  // namespace Svc

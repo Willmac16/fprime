@@ -15,3 +15,13 @@ set(MOD_DEPS
 )
 
 register_fprime_module()
+### UTs ###
+set(UT_SOURCE_FILES
+  "${FPRIME_FRAMEWORK_PATH}/Svc/PassiveConsoleTextLogger/PassiveConsoleTextLogger.fpp"
+  "${CMAKE_CURRENT_LIST_DIR}/test/ut/PassiveTextLoggerTester.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/test/ut/PassiveTextLoggerTestMain.cpp"
+)
+set(UT_MOD_DEPS
+  Fw/Logger
+)
+register_fprime_ut()
