@@ -133,6 +133,11 @@ class DpContainer {
     //! \return The serialize status
     Fw::SerializeStatus deserializeHeader();
 
+    //! Set up the data buffer for deserialization
+    //! Call this after deserializeHeader() to prepare the data buffer
+    //! for reading records via deserializeRecord_*() methods
+    void setUpForDeserialization();
+
     //! Serialize the header into the packet buffer and update the header hash
     //! Buffer must be valid, and its size must be at least MIN_PACKET_SIZE
     void serializeHeader();

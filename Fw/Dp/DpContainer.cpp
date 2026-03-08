@@ -86,6 +86,15 @@ Fw::SerializeStatus DpContainer::deserializeHeader() {
     return status;
 }
 
+void DpContainer::setUpForDeserialization() {
+    FW_ASSERT(this->m_buffer.isValid());
+    // Set the data buffer length to the data size so that
+    // deserializeTo calls can read the data
+    const Fw::SerializeStatus status =
+        this->m_dataBuffer.setBuffLen(static_cast<Fw::Serializable::SizeType>(this->m_dataSize));
+    FW_ASSERT(status == Fw::FW_SERIALIZE_OK, static_cast<FwAssertArgType>(status));
+}
+
 void DpContainer::serializeHeader() {
     FW_ASSERT(this->m_buffer.isValid());
     auto serializer = this->m_buffer.getSerializer();
