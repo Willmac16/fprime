@@ -85,6 +85,9 @@ module Ref {
   instance SG5: Ref.SignalGen base id 0x10015000 \
     queue size Default.QUEUE_SIZE
 
+  instance statePersist: Ref.StatePersist base id 0x10016000 \
+    queue size Default.QUEUE_SIZE
+
   # ----------------------------------------------------------------------
   # Passive component instances
   # ----------------------------------------------------------------------

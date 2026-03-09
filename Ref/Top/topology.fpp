@@ -42,6 +42,7 @@ module Ref {
     instance typeDemo
     instance systemResources
     instance dpDemo
+    instance statePersist
     instance linuxTimer
     instance comDriver
     instance cmdSeq
@@ -97,8 +98,9 @@ module Ref {
       rateGroup2Comp.RateGroupMemberOut[2] -> SG3.schedIn
       rateGroup2Comp.RateGroupMemberOut[3] -> SG4.schedIn
       rateGroup2Comp.RateGroupMemberOut[4] -> dpDemo.run
+      rateGroup2Comp.RateGroupMemberOut[5] -> statePersist.schedIn
       #connection to FileManager listing feature command for sequencing
-      rateGroup2Comp.RateGroupMemberOut[5] -> FileHandling.fileManager.schedIn
+      rateGroup2Comp.RateGroupMemberOut[6] -> FileHandling.fileManager.schedIn
 
       # Rate group 3
       rateGroupDriverComp.CycleOut[Ports_RateGroups.rateGroup3] -> rateGroup3Comp.CycleIn
@@ -144,6 +146,12 @@ module Ref {
       # Asynchronous request
       dpDemo.productRequestOut -> DataProducts.dpMgr.productRequestIn
       DataProducts.dpMgr.productResponseOut -> dpDemo.productRecvIn
+
+      # StatePersist DP connections - save/load state across reboots
+      statePersist.productGetOut -> DataProducts.dpMgr.productGetIn
+      statePersist.productRequestOut -> DataProducts.dpMgr.productRequestIn
+      DataProducts.dpMgr.productResponseOut -> statePersist.productRecvIn
+      statePersist.productSendOut -> DataProducts.dpMgr.productSendIn
     }
 
     connections ComCcsds_CdhCore{
