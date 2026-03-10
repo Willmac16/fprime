@@ -2,6 +2,7 @@
 #define SVC_TEXT_LOGGER_IMPL_HPP
 
 #include <Fw/Log/LogSeverityEnumAc.hpp>
+#include <Os/Console.hpp>
 #include <Svc/PassiveConsoleTextLogger/PassiveTextLoggerComponentAc.hpp>
 #include <config/PassiveTextLoggerCfg.hpp>
 
@@ -41,6 +42,9 @@ class ConsoleTextLoggerImpl final : public PassiveTextLoggerComponentBase {
     //! Severity threshold: events with severity.e <= m_stderrThreshold go to stderr.
     //! Initialised from PASSIVE_TEXT_LOGGER_STDERR_THRESHOLD (0 = disabled).
     Fw::LogSeverity::T m_stderrThreshold;
+
+    //! Console instance configured for standard error output.
+    Os::Console m_stderrConsole;
 };
 
 }  // namespace Svc

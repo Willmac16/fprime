@@ -1,8 +1,9 @@
 #include <Fw/FPrimeBasicTypes.hpp>
 #include <Fw/Logger/Logger.hpp>
 #include <Fw/Types/Assert.hpp>
+#include <Os/Posix/Console.hpp>
 #include <Svc/PassiveConsoleTextLogger/ConsoleTextLoggerImpl.hpp>
-#include <cstdio>
+#include <cstring>
 
 namespace Svc {
 static_assert(std::numeric_limits<FwSizeType>::max() >= PASSIVE_TEXT_LOGGER_ID_FILTER_SIZE,
@@ -11,7 +12,12 @@ static_assert(std::numeric_limits<FwSizeType>::max() >= PASSIVE_TEXT_LOGGER_ID_F
 ConsoleTextLoggerImpl::ConsoleTextLoggerImpl(const char* compName)
     : PassiveTextLoggerComponentBase(compName),
       m_numFilteredIDs(0),
-      m_stderrThreshold(static_cast<Fw::LogSeverity::T>(PASSIVE_TEXT_LOGGER_STDERR_THRESHOLD)) {}
+      m_stderrThreshold(static_cast<Fw::LogSeverity::T>(PASSIVE_TEXT_LOGGER_STDERR_THRESHOLD)),
+      m_stderrConsole() {
+    // Configure the dedicated console to write to standard error
+    static_cast<Os::Posix::Console::PosixConsoleHandle*>(this->m_stderrConsole.getHandle())
+        ->m_file_descriptor = stderr;
+}
 
 ConsoleTextLoggerImpl::~ConsoleTextLoggerImpl() {}
 
@@ -69,10 +75,14 @@ void ConsoleTextLoggerImpl::TextLogger_handler(FwIndexType portNum,
     }
     // Route to stderr if severity is at or above the configured threshold
     if (this->m_stderrThreshold != 0 && severity.e <= this->m_stderrThreshold) {
-        fprintf(stderr,
-                "EVENT: (%" PRI_FwEventIdType ") (%" PRI_FwTimeBaseStoreType ":%" PRIu32 ",%" PRIu32 ") %s: %s\n",
-                id, static_cast<FwTimeBaseStoreType>(timeTag.getTimeBase()), timeTag.getSeconds(),
-                timeTag.getUSeconds(), severityString, text.toChar());
+        // Format into a stack buffer; truncation is accepted (mirrors PassiveTextLogger behaviour)
+        char buf[512];
+        (void)snprintf(buf, sizeof(buf),
+                       "EVENT: (%" PRI_FwEventIdType ") (%" PRI_FwTimeBaseStoreType ":%" PRIu32 ",%" PRIu32
+                       ") %s: %s\n",
+                       id, static_cast<FwTimeBaseStoreType>(timeTag.getTimeBase()), timeTag.getSeconds(),
+                       timeTag.getUSeconds(), severityString, text.toChar());
+        this->m_stderrConsole.writeMessage(buf, static_cast<FwSizeType>(strlen(buf)));
     } else {
         Fw::Logger::log(
             "EVENT: (%" PRI_FwEventIdType ") (%" PRI_FwTimeBaseStoreType ":%" PRIu32 ",%" PRIu32 ") %s: %s\n",

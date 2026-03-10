@@ -7,6 +7,7 @@
 #define ACTIVETEXTLOGGERIMPL_HPP_
 
 #include <Fw/Log/LogSeverityEnumAc.hpp>
+#include <Os/Console.hpp>
 #include <Svc/ActiveTextLogger/ActiveTextLoggerComponentAc.hpp>
 #include <Svc/ActiveTextLogger/LogFile.hpp>
 #include <config/ActiveTextLoggerCfg.hpp>
@@ -124,6 +125,9 @@ class ActiveTextLogger final : public ActiveTextLoggerComponentBase {
     //! Severity threshold: events with severity.e <= m_stderrThreshold go to stderr immediately.
     //! Initialised from ACTIVE_TEXT_LOGGER_STDERR_THRESHOLD (0 = disabled).
     Fw::LogSeverity::T m_stderrThreshold;
+
+    //! Console instance configured for standard error output.
+    Os::Console m_stderrConsole;
 };
 
 }  // namespace Svc
