@@ -1,18 +1,29 @@
 #include <Fw/FPrimeBasicTypes.hpp>
 #include <Fw/Logger/Logger.hpp>
 #include <Fw/Types/Assert.hpp>
+#include <Os/Posix/Console.hpp>
 #include <Svc/PassiveConsoleTextLogger/ConsoleTextLoggerImpl.hpp>
+#include <cstring>
 
 namespace Svc {
 static_assert(std::numeric_limits<FwSizeType>::max() >= PASSIVE_TEXT_LOGGER_ID_FILTER_SIZE,
               "PASSIVE_TEXT_LOGGER_ID_FILTER_SIZE must fit within range of FwSizeType");
 
 ConsoleTextLoggerImpl::ConsoleTextLoggerImpl(const char* compName)
-    : PassiveTextLoggerComponentBase(compName), m_numFilteredIDs(0) {}
+    : PassiveTextLoggerComponentBase(compName),
+      m_numFilteredIDs(0),
+      m_stderrThreshold(static_cast<Fw::LogSeverity::T>(PASSIVE_TEXT_LOGGER_STDERR_THRESHOLD)),
+      m_stderrConsole() {
+    // Configure the dedicated console to write to standard error
+    static_cast<Os::Posix::Console::PosixConsoleHandle*>(this->m_stderrConsole.getHandle())
+        ->m_file_descriptor = stderr;
+}
 
 ConsoleTextLoggerImpl::~ConsoleTextLoggerImpl() {}
 
-void ConsoleTextLoggerImpl::configure(const FwEventIdType* filteredIds, FwSizeType count) {
+void ConsoleTextLoggerImpl::configure(const FwEventIdType* filteredIds,
+                                      FwSizeType count,
+                                      Fw::LogSeverity::T stderrThreshold) {
     FW_ASSERT(count < PASSIVE_TEXT_LOGGER_ID_FILTER_SIZE, static_cast<FwAssertArgType>(count),
               PASSIVE_TEXT_LOGGER_ID_FILTER_SIZE);
 
@@ -20,6 +31,7 @@ void ConsoleTextLoggerImpl::configure(const FwEventIdType* filteredIds, FwSizeTy
     for (FwSizeType entry = 0; entry < count; entry++) {
         this->m_filteredIDs[entry] = filteredIds[entry];
     }
+    this->m_stderrThreshold = stderrThreshold;
 }
 
 void ConsoleTextLoggerImpl::TextLogger_handler(FwIndexType portNum,
@@ -61,8 +73,21 @@ void ConsoleTextLoggerImpl::TextLogger_handler(FwIndexType portNum,
             severityString = "SEVERITY ERROR";
             break;
     }
-    Fw::Logger::log("EVENT: (%" PRI_FwEventIdType ") (%" PRI_FwTimeBaseStoreType ":%" PRIu32 ",%" PRIu32 ") %s: %s\n",
-                    id, static_cast<FwTimeBaseStoreType>(timeTag.getTimeBase()), timeTag.getSeconds(),
-                    timeTag.getUSeconds(), severityString, text.toChar());
+    // Route to stderr if severity is at or above the configured threshold
+    if (this->m_stderrThreshold != 0 && severity.e <= this->m_stderrThreshold) {
+        // Format into a stack buffer; truncation is accepted (mirrors PassiveTextLogger behaviour)
+        char buf[512];
+        (void)snprintf(buf, sizeof(buf),
+                       "EVENT: (%" PRI_FwEventIdType ") (%" PRI_FwTimeBaseStoreType ":%" PRIu32 ",%" PRIu32
+                       ") %s: %s\n",
+                       id, static_cast<FwTimeBaseStoreType>(timeTag.getTimeBase()), timeTag.getSeconds(),
+                       timeTag.getUSeconds(), severityString, text.toChar());
+        this->m_stderrConsole.writeMessage(buf, static_cast<FwSizeType>(strlen(buf)));
+    } else {
+        Fw::Logger::log(
+            "EVENT: (%" PRI_FwEventIdType ") (%" PRI_FwTimeBaseStoreType ":%" PRIu32 ",%" PRIu32 ") %s: %s\n",
+            id, static_cast<FwTimeBaseStoreType>(timeTag.getTimeBase()), timeTag.getSeconds(),
+            timeTag.getUSeconds(), severityString, text.toChar());
+    }
 }
 }  // namespace Svc

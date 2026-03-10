@@ -5,6 +5,7 @@
 
 #include <Fw/Logger/Logger.hpp>
 #include <Fw/Types/Assert.hpp>
+#include <Os/Posix/Console.hpp>
 #include <Svc/ActiveTextLogger/ActiveTextLogger.hpp>
 #include <ctime>
 
@@ -17,11 +18,21 @@ static_assert(std::numeric_limits<FwSizeType>::max() >= ACTIVE_TEXT_LOGGER_ID_FI
 // ----------------------------------------------------------------------
 
 ActiveTextLogger::ActiveTextLogger(const char* name)
-    : ActiveTextLoggerComponentBase(name), m_log_file(), m_numFilteredIDs(0) {}
+    : ActiveTextLoggerComponentBase(name),
+      m_log_file(),
+      m_numFilteredIDs(0),
+      m_stderrThreshold(static_cast<Fw::LogSeverity::T>(ACTIVE_TEXT_LOGGER_STDERR_THRESHOLD)),
+      m_stderrConsole() {
+    // Configure the dedicated console to write to standard error
+    static_cast<Os::Posix::Console::PosixConsoleHandle*>(this->m_stderrConsole.getHandle())
+        ->m_file_descriptor = stderr;
+}
 
 ActiveTextLogger::~ActiveTextLogger() {}
 
-void ActiveTextLogger::configure(const FwEventIdType* filteredIds, FwSizeType count) {
+void ActiveTextLogger::configure(const FwEventIdType* filteredIds,
+                                 FwSizeType count,
+                                 Fw::LogSeverity::T stderrThreshold) {
     FW_ASSERT(count < ACTIVE_TEXT_LOGGER_ID_FILTER_SIZE, static_cast<FwAssertArgType>(count),
               ACTIVE_TEXT_LOGGER_ID_FILTER_SIZE);
 
@@ -29,6 +40,7 @@ void ActiveTextLogger::configure(const FwEventIdType* filteredIds, FwSizeType co
     for (FwSizeType entry = 0; entry < count; entry++) {
         this->m_filteredIDs[entry] = filteredIds[entry];
     }
+    this->m_stderrThreshold = stderrThreshold;
 }
 
 // ----------------------------------------------------------------------
@@ -87,6 +99,13 @@ void ActiveTextLogger::TextLogger_handler(FwIndexType portNum,
                          ") %s: %s\n",
                          id, static_cast<FwTimeBaseStoreType>(timeTag.getTimeBase()), timeTag.getSeconds(),
                          timeTag.getUSeconds(), severityString, text.toChar());
+
+    // Route to stderr immediately if severity is at or above the configured threshold.
+    // High-severity events bypass the queue and go directly to stderr on the caller's thread.
+    if (this->m_stderrThreshold != 0 && severity.e <= this->m_stderrThreshold) {
+        this->m_stderrConsole.writeMessage(intText.toChar(), intText.length());
+        return;
+    }
 
     // Call internal interface so that everything else is done on component thread,
     // this helps ensure consistent ordering of the printed text:
