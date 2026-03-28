@@ -69,7 +69,7 @@ void setupTopology(const TopologyState& state) {
     // Autocoded configuration. Function provided by autocoder.
     configComponents(state);
     if (state.hostname != nullptr && state.port != 0) {
-        comDriver.configure(state.hostname, state.port);
+        comDriver.configure(state.hostname, state.port, 1, 0);  // 1 second send timeout
     }
     // Project-specific component configuration. Function provided above. May be inlined, if desired.
     configureTopology();

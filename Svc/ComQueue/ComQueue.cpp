@@ -233,24 +233,21 @@ void ComQueue::bufferQueueIn_handler(const FwIndexType portNum, Fw::Buffer& fwBu
 }
 
 void ComQueue::comStatusIn_handler(const FwIndexType portNum, Fw::Success& condition) {
-    switch (this->m_state) {
-        // On success, the queue should be processed. On failure, the component should still wait.
-        case WAITING:
-            if (condition.e == Fw::Success::SUCCESS) {
-                this->m_state = READY;
-                this->processQueue();
-                // A message may or may not be sent. Thus, READY or WAITING are acceptable final states.
-                FW_ASSERT((this->m_state == WAITING || this->m_state == READY),
-                          static_cast<FwAssertArgType>(this->m_state));
-            } else {
-                this->m_state = WAITING;
-            }
-            break;
-        // Both READY and unknown states should not be possible at this point. To receive a status message we must be
-        // one of the WAITING or RETRY states.
-        default:
-            FW_ASSERT(0, static_cast<FwAssertArgType>(this->m_state));
-            break;
+    // Guarded: runs on the caller's thread under the component mutex.
+    // Only flip the state — processQueue is dispatched via the retryQueue internal port
+    // on ComQueue's own thread to avoid re-entrancy in the synchronous send chain.
+    // If retryQueue is dropped (queue full), m_state is still READY so the next
+    // comPacketQueueIn or run dispatch will call processQueue.
+    if (this->m_state == WAITING && condition.e == Fw::Success::SUCCESS) {
+        this->m_state = READY;
+        this->retryQueue_internalInterfaceInvoke();
+    }
+    // On failure: stay in WAITING. On READY: benign, ignore.
+}
+
+void ComQueue::retryQueue_internalInterfaceHandler() {
+    if (this->m_state == READY) {
+        this->processQueue();
     }
 }
 

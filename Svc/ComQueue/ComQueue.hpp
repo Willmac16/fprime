@@ -203,6 +203,13 @@ class ComQueue final : public ComQueueComponentBase {
                               const ComCfg::FrameContext& context) override;
 
     // ----------------------------------------------------------------------
+    // Internal interface handlers
+    // ----------------------------------------------------------------------
+
+    //! Handler for retryQueue — dispatches processQueue on ComQueue's own thread
+    void retryQueue_internalInterfaceHandler() override;
+
+    // ----------------------------------------------------------------------
     // Hook implementations for typed async input ports
     // ----------------------------------------------------------------------
 

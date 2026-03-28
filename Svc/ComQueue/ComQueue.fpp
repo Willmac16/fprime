@@ -18,8 +18,13 @@ module Svc {
       @ Port for emitting data ready to be sent
       output port dataOut: Svc.ComDataWithContext
 
-      @ Port for receiving the status signal
-      async input port comStatusIn: Fw.SuccessCondition
+      @ Port for receiving the status signal (guarded to avoid OS queue overflow assert)
+      guarded input port comStatusIn: Fw.SuccessCondition
+
+      @ Internal port to trigger queue processing after comStatus on ComQueue's own thread.
+      @ If dropped due to queue pressure, m_state is still READY so the next
+      @ comPacketQueueIn or run dispatch will call processQueue.
+      internal port retryQueue drop
 
       @ Port array for receiving Fw::ComBuffers
       async input port comPacketQueueIn: [ComQueueComPorts] Fw.Com drop
