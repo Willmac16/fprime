@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
 
     // Setup, cycle, and teardown topology
     Ref::setupTopology(inputs);
-    Ref::startRateGroups(Fw::TimeInterval(0, 20000));  // Program loop cycling rate groups at 50Hz
+    Ref::startRateGroups(Fw::TimeInterval(0, 50000));  // Program loop cycling rate groups at 20Hz
     Ref::teardownTopology(inputs);
     (void)printf("Exiting...\n");
     return 0;

@@ -51,42 +51,37 @@ void StressTest::schedIn_handler(FwIndexType portNum, U32 context) {
         this->tlmWrite_SeqNum(m_tlmSeqNum);
     }
 
-    // === Heavy telemetry: complex types every cycle ===
-
-    // 16-element F32 array (~64 bytes on the wire)
-    {
-        Ref::StressF32Array arr;
-        for (U32 j = 0; j < 16; j++) {
-            arr[j] = static_cast<F32>(m_cycleCount) + static_cast<F32>(j) * 0.1F;
+    // === Heavy telemetry: complex types every cycle (only if tlmPerCycle > 0) ===
+    if (m_tlmPerCycle > 0) {
+        // 16-element F32 array (~64 bytes on the wire)
+        {
+            Ref::StressF32Array arr;
+            for (U32 j = 0; j < 16; j++) {
+                arr[j] = static_cast<F32>(m_cycleCount) + static_cast<F32>(j) * 0.1F;
+            }
+            this->tlmWrite_BigArray(arr);
         }
-        this->tlmWrite_BigArray(arr);
-    }
 
-    // Struct with nested array + string (~120 bytes)
-    {
-        Ref::StressPayload payload = this->buildPayload(m_tlmSeqNum);
-        this->tlmWrite_BigStruct(payload);
-    }
-
-    // Batch of 4 structs (~480 bytes)
-    {
-        Ref::StressPayloadBatch batch;
-        for (U32 k = 0; k < 4; k++) {
-            batch[k] = this->buildPayload(m_tlmSeqNum + k);
+        // Struct with nested array + string (~120 bytes)
+        {
+            Ref::StressPayload payload = this->buildPayload(m_tlmSeqNum);
+            this->tlmWrite_BigStruct(payload);
         }
-        this->tlmWrite_BigBatch(batch);
+
+        // Batch of 4 structs (~480 bytes)
+        {
+            Ref::StressPayloadBatch batch;
+            for (U32 k = 0; k < 4; k++) {
+                batch[k] = this->buildPayload(m_tlmSeqNum + k);
+            }
+            this->tlmWrite_BigBatch(batch);
+        }
     }
 
-    // === Events: simple + complex ===
+    // === Events: simple only to avoid saturating comm chain ===
     for (U32 i = 0; i < m_eventsPerCycle; i++) {
         m_evtSeqNum++;
-        // Alternate between simple and complex events
-        if ((m_evtSeqNum % 2) == 0) {
-            this->log_ACTIVITY_HI_StressEvent(m_evtSeqNum);
-        } else {
-            Ref::StressPayload payload = this->buildPayload(m_evtSeqNum);
-            this->log_ACTIVITY_HI_StressBigEvent(m_evtSeqNum, payload);
-        }
+        this->log_ACTIVITY_HI_StressEvent(m_evtSeqNum);
     }
 
     // Cycle-level telemetry
