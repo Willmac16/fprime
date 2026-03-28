@@ -45,6 +45,7 @@ module Ref {
     instance linuxTimer
     instance comDriver
     instance cmdSeq
+    instance stressTest
 
     # ----------------------------------------------------------------------
     # Pattern graph specifiers
@@ -89,6 +90,7 @@ module Ref {
       rateGroup1Comp.RateGroupMemberOut[5] -> ComCcsds.comQueue.run
       rateGroup1Comp.RateGroupMemberOut[6] -> CdhCore.cmdDisp.run
       rateGroup1Comp.RateGroupMemberOut[7] -> ComCcsds.aggregator.timeout
+      rateGroup1Comp.RateGroupMemberOut[8] -> stressTest.schedIn
 
       # Rate group 2
       rateGroupDriverComp.CycleOut[Ports_RateGroups.rateGroup2] -> rateGroup2Comp.CycleIn

@@ -273,6 +273,13 @@ telemetry packets RefPackets {
     CdhCore.version.CustomVersion10
   }
 
+  packet StressTestTlm id 38 group 1 {
+    stressTest.SeqNum
+    stressTest.CycleCount
+    stressTest.TlmPerCycle
+    stressTest.EventsPerCycle
+  }
+
 } omit {
   CdhCore.cmdDisp.CommandErrors
 }

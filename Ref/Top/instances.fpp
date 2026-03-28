@@ -101,4 +101,6 @@ module Ref {
 
   instance comDriver: Drv.TcpClient base id 0x10025000
 
+  instance stressTest: Ref.StressTest base id 0x10030000
+
 }
