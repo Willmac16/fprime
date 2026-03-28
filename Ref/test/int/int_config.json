@@ -33,5 +33,6 @@
     "Svc.FprimeDeframer": "Ref.deframer",
     "Svc.FprimeRouter": "Ref.fprimeRouter",
     "Svc.FprimeFramer": "Ref.framer",
-    "Svc.ComStub": "Ref.comStub"
+    "Svc.ComStub": "Ref.comStub",
+    "Ref.StressTest": "Ref.stressTest"
 }
