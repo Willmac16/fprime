@@ -43,7 +43,7 @@ module Ref {
     instance systemResources
     instance dpDemo
     instance linuxTimer
-    instance comDriver
+    instance udpDownlink
     instance cmdSeq
     instance stressTest
 
@@ -114,17 +114,19 @@ module Ref {
     }
 
     connections Communications {
-      # ComDriver buffer allocations
-      comDriver.allocate      -> ComCcsds.commsBufferManager.bufferGetCallee
-      comDriver.deallocate    -> ComCcsds.commsBufferManager.bufferSendIn
-      
-      # ComDriver <-> ComStub (Uplink)
-      comDriver.$recv                     -> ComCcsds.comStub.drvReceiveIn
-      ComCcsds.comStub.drvReceiveReturnOut -> comDriver.recvReturnIn
-      
-      # ComStub <-> ComDriver (Downlink)
-      ComCcsds.comStub.drvSendOut      -> comDriver.$send
-      comDriver.ready         -> ComCcsds.comStub.drvConnected
+      # UDP driver buffer allocations
+      udpDownlink.allocate    -> ComCcsds.commsBufferManager.bufferGetCallee
+      udpDownlink.deallocate  -> ComCcsds.commsBufferManager.bufferSendIn
+
+      # UDP -> ComStub (Uplink: commands from GDS)
+      udpDownlink.$recv                   -> ComCcsds.comStub.drvReceiveIn
+      ComCcsds.comStub.drvReceiveReturnOut -> udpDownlink.recvReturnIn
+
+      # ComStub -> UDP (Downlink: telemetry/events to GDS)
+      ComCcsds.comStub.drvSendOut      -> udpDownlink.$send
+
+      # UDP ready signal triggers initial comStatus to start the pipeline
+      udpDownlink.ready       -> ComCcsds.comStub.drvConnected
     }
 
     connections Ref {

@@ -11,6 +11,7 @@
 
 // Provides access to autocoded functions
 #include <Ref/Top/RefTopologyAc.hpp>
+#include <cstring>
 
 // Necessary project-specified types
 #include <Fw/Types/MallocAllocator.hpp>
@@ -69,7 +70,10 @@ void setupTopology(const TopologyState& state) {
     // Autocoded configuration. Function provided by autocoder.
     configComponents(state);
     if (state.hostname != nullptr && state.port != 0) {
-        comDriver.configure(state.hostname, state.port);
+        // UDP for both directions — send to GDS on port+1, recv on port
+        const char* udpHost = (strcmp(state.hostname, "0.0.0.0") == 0) ? "127.0.0.1" : state.hostname;
+        udpDownlink.configureSend(udpHost, static_cast<U16>(state.port + 1));
+        udpDownlink.configureRecv(state.hostname, state.port);
     }
     // Project-specific component configuration. Function provided above. May be inlined, if desired.
     configureTopology();
@@ -77,10 +81,10 @@ void setupTopology(const TopologyState& state) {
     loadParameters();
     // Autocoded task kick-off (active components). Function provided by autocoder.
     startTasks(state);
-    // Initialize socket client communication if and only if there is a valid specification
+    // Start UDP receive task
     if (state.hostname != nullptr && state.port != 0) {
-        Os::TaskString name("ReceiveTask");
-        comDriver.start(name, COMM_PRIORITY, Default::STACK_SIZE);
+        Os::TaskString name("UdpRecvTask");
+        udpDownlink.start(name, COMM_PRIORITY, Default::STACK_SIZE);
     }
 }
 
@@ -101,9 +105,9 @@ void teardownTopology(const TopologyState& state) {
     stopTasks(state);
     freeThreads(state);
 
-    // Stop the comDriver component, free thread
-    comDriver.stop();
-    (void)comDriver.join();
+    // Stop the UDP driver component, free thread
+    udpDownlink.stop();
+    (void)udpDownlink.join();
 
     // Resource deallocation
     cmdSeq.deallocateBuffer(mallocator);
