@@ -18,8 +18,8 @@ telemetry packets RefPackets {
     ComCcsds.commsBufferManager.TotalBuffs
     ComCcsds.commsBufferManager.CurrBuffs
     ComCcsds.commsBufferManager.HiBuffs
-    #CdhCore.tlmSend.GroupConfigs
-    #CdhCore.tlmSend.SectionEnabled
+    CdhCore.tlmSend.GroupConfigs
+    CdhCore.tlmSend.SectionEnabled
 
     rateGroup1Comp.RgMaxTime
     rateGroup2Comp.RgMaxTime
@@ -278,6 +278,18 @@ telemetry packets RefPackets {
     stressTest.CycleCount
     stressTest.TlmPerCycle
     stressTest.EventsPerCycle
+  }
+
+  packet StressTestHeavy1 id 39 group 1 {
+    stressTest.BigArray
+  }
+
+  packet StressTestHeavy2 id 40 group 1 {
+    stressTest.BigStruct
+  }
+
+  packet StressTestHeavy3 id 41 group 1 {
+    stressTest.BigBatch
   }
 
 } omit {

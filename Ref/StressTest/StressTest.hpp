@@ -15,6 +15,9 @@ class StressTest : public StressTestComponentBase {
     void START_cmdHandler(FwOpcodeType opCode, U32 cmdSeq, U32 tlmPerCycle, U32 eventsPerCycle) override;
     void STOP_cmdHandler(FwOpcodeType opCode, U32 cmdSeq) override;
 
+    // Build a StressPayload struct with deterministic data
+    Ref::StressPayload buildPayload(U32 seqNum);
+
     bool m_running;
     U32 m_tlmPerCycle;
     U32 m_eventsPerCycle;
