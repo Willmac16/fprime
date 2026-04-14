@@ -63,3 +63,12 @@ event BufferTooSmall(
   severity warning high \
   id 6 \
   format "UART Device {} target buffer too small. Size: {} Needs: {}"
+
+@ UART port not opened
+event PortNotOpened(
+                        device: string size 40 @< The device
+                      ) \
+  severity warning high \
+  id 7 \
+  format "UART Device {} not opened" \
+  throttle 5

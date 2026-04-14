@@ -24,8 +24,13 @@ ComStub::~ComStub() {}
 // ----------------------------------------------------------------------
 
 void ComStub::dataIn_handler(const FwIndexType portNum, Fw::Buffer& sendBuffer, const ComCfg::FrameContext& context) {
-    // A message should never get here if we need to reinitialize
-    FW_ASSERT(!this->m_reinitialize || !this->isConnected_comStatusOut_OutputPort(0));
+    // If driver is not ready (reinitializing) and flow control is active, return buffer with failure
+    if (this->m_reinitialize && this->isConnected_comStatusOut_OutputPort(0)) {
+        Fw::Success comFailure = Fw::Success::FAILURE;
+        this->dataReturnOut_out(0, sendBuffer, context);
+        this->comStatusOut_out(0, comFailure);
+        return;
+    }
     if (this->isConnected_drvSendOut_OutputPort(0)) {
         this->handleSynchronousSend(sendBuffer, context);
     } else if (this->isConnected_drvAsyncSendOut_OutputPort(0)) {

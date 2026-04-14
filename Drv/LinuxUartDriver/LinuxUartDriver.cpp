@@ -304,6 +304,10 @@ void LinuxUartDriver ::run_handler(FwIndexType portNum, U32 context) {
 Drv::ByteStreamStatus LinuxUartDriver ::send_handler(const FwIndexType portNum, Fw::Buffer& serBuffer) {
     Drv::ByteStreamStatus status = Drv::ByteStreamStatus::OP_OK;
     if (this->m_fd == -1 || serBuffer.getData() == nullptr || serBuffer.getSize() == 0) {
+        if (this->m_fd == -1) {
+            Fw::LogStringArg _arg = this->m_device;
+            this->log_WARNING_HI_PortNotOpened(_arg);
+        }
         status = Drv::ByteStreamStatus::OTHER_ERROR;
     } else {
         unsigned char* data = serBuffer.getData();
@@ -332,6 +336,14 @@ void LinuxUartDriver ::serialReadTaskEntry(void* ptr) {
     Drv::ByteStreamStatus status = ByteStreamStatus::OTHER_ERROR;  // added by m.chase 03.06.2017
     LinuxUartDriver* comp = reinterpret_cast<LinuxUartDriver*>(ptr);
     while (!comp->m_quitReadThread) {
+        // If the port was never opened (or failed to open), avoid spinning on reads
+        if (comp->m_fd == -1) {
+            Fw::LogStringArg _arg = comp->m_device;
+            comp->log_WARNING_HI_PortNotOpened(_arg);
+            Os::Task::delay(Fw::TimeInterval(1, 0));  // 1 second delay
+            continue;
+        }
+
         Fw::Buffer buff = comp->allocate_out(0, comp->m_allocationSize);
 
         // On failed allocation, error
