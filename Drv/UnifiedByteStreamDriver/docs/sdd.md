@@ -25,9 +25,16 @@ An endpoint is a `Drv::IpEndpoint`: four `U8` address octets plus a `U16` port. 
 octets cannot express an invalid address, so there is no address parsing or validation and
 a host name cannot be entered.
 
-**A port of zero marks the endpoint as unset**, which is what makes the local and remote
-endpoints optional. It also means an ephemeral port cannot be requested here; use
-`Drv::TcpServer` or `Drv::Udp` directly if you need one.
+Zero is the wildcard in each field:
+
+| field | zero means |
+|---|---|
+| address | 0.0.0.0, bind every interface |
+| local port | take an ephemeral port; `getLocalPort` reports what was assigned |
+| remote port | UDP replies to the last sender; rejected for TCP |
+
+**An endpoint that is entirely zero is wildcard throughout and counts as unset**, which is
+what makes the local and remote endpoints optional.
 
 ### Configuration
 
@@ -37,10 +44,12 @@ endpoints optional. It also means an ephemeral port cannot be requested here; us
 | `TCP`       | unset | set    | connects to the remote endpoint                 |
 | `TCP`       | set   | set    | rejected: nothing both binds and connects       |
 | `TCP`       | unset | unset  | rejected: nothing to listen on or connect to    |
+| `TCP`       | -     | port 0 | rejected: nothing to connect to on a wildcard   |
 | `UDP`       | set   | unset  | bound locally, replying to the last sender      |
 | `UDP`       | unset | set    | send-only to the remote endpoint                |
 | `UDP`       | set   | set    | bound locally and sending to the remote         |
 | `UDP`       | unset | unset  | rejected: nothing to bind or send to            |
+| `UDP`       | unset | port 0 | rejected: reply-to-sender needs a bound local   |
 | `SERIAL`    | any   | any    | serial device; IP parameters warned, unused     |
 | `NONE`      | any   | any    | disabled, with a warning                        |
 
@@ -92,8 +101,8 @@ framework's namespace.
 | Parameter | Type | Default |
 |---|---|---|
 | `TRANSPORT` | `Drv.ByteStreamTransport` | `NONE` |
-| `LOCAL_ENDPOINT` | `Drv.IpEndpoint` | unset |
-| `REMOTE_ENDPOINT` | `Drv.IpEndpoint` | unset |
+| `LOCAL_ENDPOINT` | `Drv.IpEndpoint` | all zero (unset) |
+| `REMOTE_ENDPOINT` | `Drv.IpEndpoint` | all zero (unset) |
 | `SERIAL_DEVICE` | string | `""` |
 | `SERIAL_BAUD_RATE` | `Drv.SerialBaudRate` | `BAUD_115200` |
 | `SERIAL_PARITY` | `Drv.SerialParity` | `PARITY_NONE` |
@@ -157,10 +166,10 @@ ground displays built for that driver work unchanged.
 | UBSD-COMP-002 | The component shall select its transport from the TRANSPORT parameter | unit test |
 | UBSD-COMP-003 | The component shall support TCP, UDP and serial transports | unit test |
 | UBSD-COMP-004 | The component shall accept IP endpoints as typed address octets and a port | inspection |
-| UBSD-COMP-005 | The component shall treat an endpoint with a zero port as unset | unit test |
+| UBSD-COMP-005 | The component shall treat zero as a wildcard per field and an all-zero endpoint as unset | unit test |
 | UBSD-COMP-006 | The component shall resolve the direction of the link from the endpoints supplied | unit test |
 | UBSD-COMP-007 | The component shall warn and remain unconfigured on an unsupported configuration | unit test |
 | UBSD-COMP-008 | The component shall warn when parameters do not apply to the selected transport | unit test |
 | UBSD-COMP-009 | The component shall defer parameter changes made after configuration | unit test |
 | UBSD-COMP-010 | The component shall provide a read thread for configurations with a receive direction | unit test |
-| UBSD-COMP-011 | The component shall report the local port the transport is bound to | unit test |
+| UBSD-COMP-011 | The component shall report the local port the transport is bound to, including an ephemeral one | unit test |

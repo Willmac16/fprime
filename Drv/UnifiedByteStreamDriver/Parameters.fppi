@@ -3,14 +3,14 @@ param TRANSPORT: Drv.ByteStreamTransport \
     default Drv.ByteStreamTransport.NONE \
     id 0
 
-@ Local endpoint: the address to bind to, and the port to bind it on. A port of zero
-@ leaves the local endpoint unset.
+@ Local endpoint to bind. An address of 0.0.0.0 binds every interface and a port of zero
+@ takes an ephemeral port; an entirely zero endpoint is unset.
 param LOCAL_ENDPOINT: Drv.IpEndpoint \
     default { address = 0, $port = 0 } \
     id 1
 
-@ Remote endpoint: the address to talk to, and the port to talk to it on. A port of zero
-@ leaves the remote endpoint unset.
+@ Remote endpoint to talk to. A port of zero puts UDP in reply-to-last-sender mode and is
+@ rejected for TCP; an entirely zero endpoint is unset.
 param REMOTE_ENDPOINT: Drv.IpEndpoint \
     default { address = 0, $port = 0 } \
     id 2

@@ -8,13 +8,14 @@ module Drv {
 
     @ An IPv4 endpoint: the four address octets plus a port.
     @
-    @ A port of zero marks the endpoint as unset. That is what makes the local and remote
-    @ endpoints of the UnifiedByteStreamDriver optional, and it is why an ephemeral port
-    @ cannot be requested through this type.
+    @ Zero is the wildcard in each field: an address of 0.0.0.0 binds every interface, a
+    @ local port of zero takes an ephemeral port, and a remote port of zero puts UDP in
+    @ reply-to-last-sender mode. An endpoint that is entirely zero is wildcard throughout
+    @ and counts as unset, which is what makes the endpoints optional.
     struct IpEndpoint {
         @ Address octets in dotted-quad order, so 127.0.0.1 is [127, 0, 0, 1]
         address: [4] U8
-        @ Port in host order. Zero leaves the endpoint unset.
+        @ Port in host order
         $port: U16
     } default { address = 0, $port = 0 }
 
@@ -34,16 +35,18 @@ module Drv {
     enum ByteStreamConfigError {
         @ TCP was requested with both a local and a remote endpoint, which no transport serves
         TCP_LOCAL_AND_REMOTE = 0
-        @ Neither a local nor a remote endpoint was supplied for an IP transport
+        @ No endpoint was supplied that the IP transport could use
         NO_ENDPOINT = 1
+        @ TCP was given a remote endpoint with a wildcard port, which it cannot connect to
+        MISSING_REMOTE_PORT = 2
         @ SERIAL was requested without a device path
-        NO_SERIAL_DEVICE = 2
+        NO_SERIAL_DEVICE = 3
         @ The receive buffer size is zero
-        INVALID_BUFFER_SIZE = 3
+        INVALID_BUFFER_SIZE = 4
         @ The send timeout microseconds component is 1000000 or greater
-        INVALID_SEND_TIMEOUT = 4
+        INVALID_SEND_TIMEOUT = 5
         @ The requested baud rate is not supported by this platform
-        UNSUPPORTED_BAUD_RATE = 5
+        UNSUPPORTED_BAUD_RATE = 6
     }
 
     @ Group of parameters that does not apply to the selected transport

@@ -67,6 +67,11 @@ IpEndpoint UnifiedByteStreamDriverTester::unset() {
     return IpEndpoint(address, 0);
 }
 
+IpEndpoint UnifiedByteStreamDriverTester::endpoint(const U8 a, const U8 b, const U8 c, const U8 d, const U16 port) {
+    const U8 address[4] = {a, b, c, d};
+    return IpEndpoint(address, port);
+}
+
 void UnifiedByteStreamDriverTester::setParameters(const ByteStreamTransport transport,
                                                   const IpEndpoint& localEndpoint,
                                                   const IpEndpoint& remoteEndpoint,
@@ -261,6 +266,58 @@ void UnifiedByteStreamDriverTester::test_unconfigured_driver_refuses_send() {
 
     // Starting an unconfigured driver is a no-op rather than an error
     this->component.start();
+    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
+}
+
+void UnifiedByteStreamDriverTester::test_wildcard_address_is_set() {
+    // 0.0.0.0 binds every interface: a wildcard address, not an unset endpoint
+    this->setParameters(ByteStreamTransport::TCP, endpoint(0, 0, 0, 0, 50015), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP);
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP, "listen 0.0.0.0:50015");
+}
+
+void UnifiedByteStreamDriverTester::test_wildcard_local_port_is_set() {
+    // A zero port asks for an ephemeral one, so the endpoint is still set
+    this->setParameters(ByteStreamTransport::UDP, loopback(0), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:0");
+    ASSERT_TRUE(this->component.m_receiveEnabled);
+}
+
+void UnifiedByteStreamDriverTester::test_tcp_wildcard_remote_port_rejected() {
+    this->setParameters(ByteStreamTransport::TCP, unset(), loopback(0));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
+    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::MISSING_REMOTE_PORT);
+}
+
+void UnifiedByteStreamDriverTester::test_udp_reply_to_sender_needs_local() {
+    // A remote wildcard port means "reply to the last sender", which needs a bound local
+    this->setParameters(ByteStreamTransport::UDP, unset(), loopback(0));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
+    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::NO_ENDPOINT);
+
+    // With a local endpoint it is a usable reply-to-sender configuration
+    Drv::UnifiedByteStreamDriverTester other;
+    other.setParameters(ByteStreamTransport::UDP, other.loopback(50016), other.loopback(0));
+    ASSERT_EQ(other.loadAndConfigure(), ByteStreamTransport::UDP);
+}
+
+void UnifiedByteStreamDriverTester::test_ephemeral_port_reported() {
+    this->setParameters(ByteStreamTransport::UDP, loopback(0), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_EQ(this->component.getLocalPort(), 0);  // nothing assigned until the socket opens
+
+    this->component.start();
+    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never bound its UDP socket";
+    const U16 assigned = this->component.getLocalPort();
+    ASSERT_NE(assigned, 0) << "Ephemeral port was never assigned";
+
+    // PortOpened carries the assigned port, not the zero that was asked for
+    Fw::String expected;
+    (void)expected.format("bind 127.0.0.1:%hu", assigned);
+    ASSERT_EVENTS_PortOpened(0, ByteStreamTransport::UDP, expected.toChar());
+
+    this->component.stop();
     ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
 }
 

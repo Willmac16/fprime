@@ -4,8 +4,8 @@ module Drv {
     @
     @ Replaces a deployment-time choice between Drv.TcpClient, Drv.TcpServer, Drv.Udp and
     @ Drv.LinuxUartDriver. TRANSPORT picks the transport; an optional local endpoint, an
-    @ optional remote endpoint and an optional serial device pick the direction. An
-    @ endpoint is unset when its port is zero.
+    @ optional remote endpoint and an optional serial device pick the direction. Zero is
+    @ the wildcard in each endpoint field, and an entirely zero endpoint is unset.
     @
     @ | TRANSPORT | local | remote | behavior                                    |
     @ |-----------|-------|--------|---------------------------------------------|

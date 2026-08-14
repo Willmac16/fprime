@@ -31,8 +31,10 @@ namespace Drv {
  *
  * Covers what Drv::TcpClient, Drv::TcpServer, Drv::Udp and Drv::LinuxUartDriver cover
  * individually. TRANSPORT picks the transport; an optional local endpoint, an optional
- * remote endpoint and an optional serial device pick the direction. An endpoint is unset
- * when its port is zero.
+ * remote endpoint and an optional serial device pick the direction. Zero is the wildcard
+ * in each endpoint field - 0.0.0.0 binds every interface, a zero local port takes an
+ * ephemeral one, a zero remote port puts UDP in reply-to-last-sender mode - and an
+ * entirely zero endpoint is unset.
  *
  * | TRANSPORT | local | remote | behavior                                      |
  * |-----------|-------|--------|-----------------------------------------------|
@@ -130,8 +132,14 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
         U32 sendTimeoutSeconds = 0;
         U32 sendTimeoutMicroseconds = 0;
 
-        bool hasLocal() const { return this->localEndpoint.get_port() != 0; }
-        bool hasRemote() const { return this->remoteEndpoint.get_port() != 0; }
+        //! \brief an endpoint is unset only when it is wildcard throughout
+        static bool isSet(const IpEndpoint& endpoint) {
+            const IpEndpoint::Type_of_address& octets = endpoint.get_address();
+            return (endpoint.get_port() != 0) || (octets[0] != 0) || (octets[1] != 0) || (octets[2] != 0) ||
+                   (octets[3] != 0);
+        }
+        bool hasLocal() const { return Parameters::isSet(this->localEndpoint); }
+        bool hasRemote() const { return Parameters::isSet(this->remoteEndpoint); }
         bool hasSerial() const { return this->serialDevice.length() > 0; }
     };
 
@@ -150,7 +158,10 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     static void formatAddress(const IpEndpoint& endpoint, Fw::String& address);
 
     //! \brief build the endpoint description reported in events
-    void buildEndpoint(const Parameters& parameters);
+    //!
+    //! Prefers the port actually bound over the requested one, so an ephemeral port shows
+    //! up as the port the system assigned rather than as 0.
+    void buildEndpoint();
 
     //! \brief hold a send-only transport open without reading
     void holdOpenLoop();
@@ -163,6 +174,7 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     UdpSocket m_udp;
     SerialStream m_serial;
 
+    Parameters m_parameters;  //!< snapshot the configuration was resolved from
     ByteStreamTransport m_transport = ByteStreamTransport::NONE;
     bool m_listening = false;  //!< whether a TCP transport listens rather than connects
     Fw::String m_endpoint;     //!< endpoint description reported in events

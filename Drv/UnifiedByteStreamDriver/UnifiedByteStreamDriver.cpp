@@ -71,7 +71,8 @@ ByteStreamTransport UnifiedByteStreamDriver::configure() {
     // rejected configuration is not retried behind the operator's back: the warning it
     // emits is the whole answer.
     this->m_configured = true;
-    const Parameters parameters = this->readParameters();
+    this->m_parameters = this->readParameters();
+    const Parameters& parameters = this->m_parameters;
 
     // Checks that apply whatever the transport is
     if (parameters.recvBufferSize == 0) {
@@ -104,7 +105,7 @@ ByteStreamTransport UnifiedByteStreamDriver::configure() {
     }
 
     if (this->m_transport != ByteStreamTransport::NONE) {
-        this->buildEndpoint(parameters);
+        this->buildEndpoint();
         this->log_ACTIVITY_HI_ConfigurationApplied(this->m_transport, this->m_endpoint);
     } else {
         // A rejected configuration must not leave a receive direction armed
@@ -126,6 +127,11 @@ ByteStreamTransport UnifiedByteStreamDriver::configureTcp(const Parameters& para
         return this->reject(parameters.transport, ByteStreamConfigError::NO_ENDPOINT);
     }
 
+    // A wildcard port is meaningful for a listener but there is nothing to connect to
+    if (parameters.hasRemote() && (parameters.remoteEndpoint.get_port() == 0)) {
+        return this->reject(parameters.transport, ByteStreamConfigError::MISSING_REMOTE_PORT);
+    }
+
     Fw::String address;
     this->m_listening = parameters.hasLocal();
     const IpEndpoint& endpoint = this->m_listening ? parameters.localEndpoint : parameters.remoteEndpoint;
@@ -144,7 +150,10 @@ ByteStreamTransport UnifiedByteStreamDriver::configureUdp(const Parameters& para
     if (parameters.hasSerial()) {
         this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::SERIAL, parameters.transport);
     }
-    if ((not parameters.hasLocal()) && (not parameters.hasRemote())) {
+    // A remote wildcard port means "reply to the last sender", which needs something bound
+    // locally to hear that sender in the first place
+    const bool replyToSender = parameters.hasRemote() && (parameters.remoteEndpoint.get_port() == 0);
+    if ((not parameters.hasLocal()) && ((not parameters.hasRemote()) || replyToSender)) {
         return this->reject(parameters.transport, ByteStreamConfigError::NO_ENDPOINT);
     }
 
@@ -186,7 +195,13 @@ ByteStreamTransport UnifiedByteStreamDriver::configureSerial(const Parameters& p
     return ByteStreamTransport::SERIAL;
 }
 
-void UnifiedByteStreamDriver::buildEndpoint(const Parameters& parameters) {
+void UnifiedByteStreamDriver::buildEndpoint() {
+    const Parameters& parameters = this->m_parameters;
+    // A wildcard local port is only resolved when the transport opens, so prefer the port
+    // actually bound over the requested one
+    const U16 bound = this->getLocalPort();
+    const U16 localPort = (bound != 0) ? bound : parameters.localEndpoint.get_port();
+    const U16 remotePort = parameters.remoteEndpoint.get_port();
     Fw::String local;
     Fw::String remote;
     UnifiedByteStreamDriver::formatAddress(parameters.localEndpoint, local);
@@ -194,21 +209,20 @@ void UnifiedByteStreamDriver::buildEndpoint(const Parameters& parameters) {
     switch (this->m_transport.e) {
         case ByteStreamTransport::TCP:
             if (this->m_listening) {
-                (void)this->m_endpoint.format("listen %s:%hu", local.toChar(), parameters.localEndpoint.get_port());
+                (void)this->m_endpoint.format("listen %s:%hu", local.toChar(), localPort);
             } else {
-                (void)this->m_endpoint.format("connect %s:%hu", remote.toChar(), parameters.remoteEndpoint.get_port());
+                (void)this->m_endpoint.format("connect %s:%hu", remote.toChar(), remotePort);
             }
             break;
         case ByteStreamTransport::UDP:
             if (parameters.hasLocal() && parameters.hasRemote()) {
-                (void)this->m_endpoint.format("bind %s:%hu send %s:%hu", local.toChar(),
-                                              parameters.localEndpoint.get_port(), remote.toChar(),
-                                              parameters.remoteEndpoint.get_port());
+                (void)this->m_endpoint.format("bind %s:%hu send %s:%hu", local.toChar(), localPort, remote.toChar(),
+                                              remotePort);
             } else if (parameters.hasLocal()) {
                 // Without a remote endpoint, UDP replies to whoever sent the last datagram
-                (void)this->m_endpoint.format("bind %s:%hu", local.toChar(), parameters.localEndpoint.get_port());
+                (void)this->m_endpoint.format("bind %s:%hu", local.toChar(), localPort);
             } else {
-                (void)this->m_endpoint.format("send %s:%hu", remote.toChar(), parameters.remoteEndpoint.get_port());
+                (void)this->m_endpoint.format("send %s:%hu", remote.toChar(), remotePort);
             }
             break;
         case ByteStreamTransport::SERIAL:
@@ -339,6 +353,7 @@ void UnifiedByteStreamDriver::sendBuffer(Fw::Buffer buffer, SocketIpStatus statu
 }
 
 void UnifiedByteStreamDriver::connected() {
+    this->buildEndpoint();  // an ephemeral port only has a value now
     this->log_ACTIVITY_HI_PortOpened(this->m_transport, this->m_endpoint);
     if (this->isConnected_ready_OutputPort(0)) {
         this->ready_out(0);

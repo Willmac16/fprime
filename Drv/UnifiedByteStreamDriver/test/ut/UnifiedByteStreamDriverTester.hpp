@@ -92,6 +92,21 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! An unconfigured driver refuses to send rather than reaching for a transport
     void test_unconfigured_driver_refuses_send();
 
+    //! 0.0.0.0 is a wildcard address, not an unset endpoint
+    void test_wildcard_address_is_set();
+
+    //! A zero local port asks for an ephemeral port, not an unset endpoint
+    void test_wildcard_local_port_is_set();
+
+    //! TCP has nothing to connect to on a wildcard remote port
+    void test_tcp_wildcard_remote_port_rejected();
+
+    //! UDP reply-to-last-sender needs something bound locally to hear the sender
+    void test_udp_reply_to_sender_needs_local();
+
+    //! An ephemeral port is reported once the system has assigned it
+    void test_ephemeral_port_reported();
+
     // ----------------------------------------------------------------------
     // Behavior tests
     // ----------------------------------------------------------------------
@@ -142,6 +157,9 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
 
     //! An endpoint that is not set
     static IpEndpoint unset();
+
+    //! An arbitrary endpoint
+    static IpEndpoint endpoint(const U8 a, const U8 b, const U8 c, const U8 d, const U16 port);
 
     //! Set every parameter the driver reads, so that no test depends on another's leftovers
     void setParameters(const ByteStreamTransport transport,

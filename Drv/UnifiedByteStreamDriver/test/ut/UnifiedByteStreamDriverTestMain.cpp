@@ -89,6 +89,31 @@ TEST(Configuration, UnconfiguredDriverRefusesSend) {
     tester.test_unconfigured_driver_refuses_send();
 }
 
+TEST(Configuration, WildcardAddressIsSet) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_wildcard_address_is_set();
+}
+
+TEST(Configuration, WildcardLocalPortIsSet) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_wildcard_local_port_is_set();
+}
+
+TEST(Configuration, TcpWildcardRemotePortRejected) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_tcp_wildcard_remote_port_rejected();
+}
+
+TEST(Configuration, UdpReplyToSenderNeedsLocal) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_udp_reply_to_sender_needs_local();
+}
+
+TEST(Nominal, EphemeralPortReported) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_ephemeral_port_reported();
+}
+
 TEST(Nominal, UdpMessaging) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_udp_messaging();
