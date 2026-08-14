@@ -163,9 +163,13 @@ class IpSocket {
      * A shut down begins the termination of communication. The underlying socket will coordinate a clean shutdown, and
      * it is safe to close the socket once a recv with 0 size has returned or an appropriate timeout has been reached.
      *
+     * Virtual so that an implementation whose descriptor is not a socket can break out of a blocked recv its own way.
+     * The default falls back to closing the descriptor when ::shutdown fails, which a non-socket descriptor would take
+     * every time, closing a descriptor the owner still believes it holds.
+     *
      * \param socketDescriptor: socket descriptor to shutdown
      */
-    void shutdown(const SocketDescriptor& socketDescriptor);
+    virtual void shutdown(const SocketDescriptor& socketDescriptor);
 
   protected:
     /**

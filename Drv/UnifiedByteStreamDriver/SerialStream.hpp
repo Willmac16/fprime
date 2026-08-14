@@ -59,6 +59,13 @@ class SerialStream final : public IpSocket {
     //! \brief make a blocked receive return so the read task can exit
     void requestStop();
 
+    //! \brief ask the reader to return, rather than shutting a descriptor that is not a socket
+    //!
+    //! The base implementation closes the descriptor when ::shutdown fails, which it always does on a tty. That would
+    //! leave SocketComponentHelper holding a closed descriptor it goes on to close a second time, so the close is left
+    //! to the helper and this only unblocks the reader.
+    void shutdown(const SocketDescriptor& socketDescriptor) override;
+
     //! \brief whether this platform's termios defines the given baud rate
     static bool isBaudRateSupported(const SerialBaudRate baud);
 

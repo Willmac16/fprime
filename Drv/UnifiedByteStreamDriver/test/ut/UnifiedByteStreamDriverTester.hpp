@@ -124,6 +124,10 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! device so that the test needs no real hardware
     void test_serial_messaging();
 
+    //! A send-only UDP link has no receive direction to block on, so its read task holds the
+    //! transport open for the send path instead of reading from it
+    void test_udp_send_only_messaging();
+
     //! Buffers handed back on recvReturnIn are deallocated
     void test_buffer_deallocation();
 

@@ -537,6 +537,47 @@ void UnifiedByteStreamDriverTester::test_serial_messaging() {
     ASSERT_from_ready_SIZE(1);
 }
 
+void UnifiedByteStreamDriverTester::test_udp_send_only_messaging() {
+    const U16 peerPort = Drv::Test::get_free_port(true);
+    ASSERT_NE(peerPort, 0);
+
+    // No local endpoint, so the driver has nothing to read and holds the transport open for
+    // the send path alone
+    this->setParameters(ByteStreamTransport::UDP, unset(), loopback(peerPort));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_FALSE(this->component.m_receiveEnabled);
+
+    Drv::UdpSocket peer;
+    Drv::SocketDescriptor peerDescriptor;
+    ASSERT_EQ(peer.configureRecv(LOOPBACK, peerPort), Drv::SOCK_SUCCESS);
+    ASSERT_EQ(peer.open(peerDescriptor), Drv::SOCK_SUCCESS);
+
+    this->component.start();
+    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never opened its send-only UDP socket";
+    Drv::Test::force_recv_timeout(peerDescriptor.fd, peer);
+    // Nothing is bound locally, so there is no local port to report
+    ASSERT_EQ(this->component.getLocalPort(), 0);
+
+    U8 received[sizeof(this->m_data_storage)] = {};
+    FwSizeType size = 0;
+    {
+        Os::ScopeLock lock(this->m_buffer_lock);
+        this->m_data_buffer.setSize(sizeof(this->m_data_storage));
+        size = Drv::Test::fill_random_buffer(this->m_data_buffer);
+    }
+    ASSERT_EQ(this->invoke_to_send(0, this->m_data_buffer), ByteStreamStatus::OP_OK);
+    Drv::Test::receive_all(peer, peerDescriptor, received, size);
+    Drv::Test::validate_random_buffer(this->m_data_buffer, received);
+
+    // The hold-open loop never reads, so nothing should have come back up the recv port
+    ASSERT_from_recv_SIZE(0);
+
+    this->component.stop();
+    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
+    peer.close(peerDescriptor);
+    ASSERT_from_ready_SIZE(1);
+}
+
 void UnifiedByteStreamDriverTester::test_buffer_deallocation() {
     U8 data[1] = {};
     Fw::Buffer buffer(data, sizeof(data));

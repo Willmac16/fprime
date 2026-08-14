@@ -134,6 +134,11 @@ TEST(Nominal, SerialMessaging) {
     tester.test_serial_messaging();
 }
 
+TEST(Nominal, UdpSendOnlyMessaging) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_udp_send_only_messaging();
+}
+
 TEST(Nominal, BufferDeallocation) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_buffer_deallocation();

@@ -271,8 +271,8 @@ void UnifiedByteStreamDriver::stop() {
     if (not this->m_started) {
         return;
     }
-    // A blocked serial read has no socket shutdown to break it out, so ask it to return
-    this->m_serial.requestStop();
+    // A blocked serial read has no socket shutdown to break it out; SerialStream::shutdown,
+    // which SocketComponentHelper::stop calls, asks it to return instead
     SocketComponentHelper::stop();
 }
 
