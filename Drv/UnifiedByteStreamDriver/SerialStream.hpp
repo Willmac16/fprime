@@ -125,11 +125,11 @@ class SerialStream final : public IpSocket {
     //! \brief apply the configured line settings to an open file descriptor
     SocketIpStatus applyLineSettings(const int fd) const;
 
-    char m_device[SERIAL_STREAM_MAX_DEVICE_SIZE];  //!< device path
-    SerialBaudRate m_baud;                         //!< baud rate of the line
-    SerialParity m_parity;                         //!< parity of the line
-    SerialFlowControl m_flowControl;               //!< flow control of the line
-    std::atomic<bool> m_stop;                      //!< set to break out of a blocked receive
+    char m_device[SERIAL_STREAM_MAX_DEVICE_SIZE] = {};               //!< device path
+    SerialBaudRate m_baud = SerialBaudRate::BAUD_115200;             //!< baud rate of the line
+    SerialParity m_parity = SerialParity::PARITY_NONE;               //!< parity of the line
+    SerialFlowControl m_flowControl = SerialFlowControl::FLOW_NONE;  //!< flow control of the line
+    std::atomic<bool> m_stop{false};                                 //!< set to break out of a blocked receive
 };
 
 }  // namespace Drv

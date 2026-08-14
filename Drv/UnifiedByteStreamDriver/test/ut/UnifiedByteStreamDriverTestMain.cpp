@@ -9,14 +9,14 @@ TEST(Configuration, TransportNone) {
     tester.test_transport_none();
 }
 
-TEST(Configuration, TcpClient) {
+TEST(Configuration, TcpConnect) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_client_configuration();
+    tester.test_tcp_connect_configuration();
 }
 
-TEST(Configuration, TcpServer) {
+TEST(Configuration, TcpListen) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_server_configuration();
+    tester.test_tcp_listen_configuration();
 }
 
 TEST(Configuration, TcpBothEndpointsRejected) {
@@ -27,16 +27,6 @@ TEST(Configuration, TcpBothEndpointsRejected) {
 TEST(Configuration, TcpNoEndpointRejected) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_tcp_no_endpoint_rejected();
-}
-
-TEST(Configuration, TcpMissingRemotePortRejected) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_missing_remote_port_rejected();
-}
-
-TEST(Configuration, NonDottedQuadRejected) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_non_dotted_quad_rejected();
 }
 
 TEST(Configuration, UdpBidirectional) {
@@ -94,14 +84,9 @@ TEST(Configuration, ChangeDeferred) {
     tester.test_configuration_change_deferred();
 }
 
-TEST(Configuration, DisabledDriverRefusesSend) {
+TEST(Configuration, UnconfiguredDriverRefusesSend) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_disabled_driver_refuses_send();
-}
-
-TEST(Configuration, DottedQuadValidation) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_dotted_quad_validation();
+    tester.test_unconfigured_driver_refuses_send();
 }
 
 TEST(Nominal, UdpMessaging) {
@@ -109,14 +94,14 @@ TEST(Nominal, UdpMessaging) {
     tester.test_udp_messaging();
 }
 
-TEST(Nominal, TcpClientMessaging) {
+TEST(Nominal, TcpConnectMessaging) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_client_messaging();
+    tester.test_tcp_connect_messaging();
 }
 
-TEST(Nominal, TcpServerMessaging) {
+TEST(Nominal, TcpListenMessaging) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_server_messaging();
+    tester.test_tcp_listen_messaging();
 }
 
 TEST(Nominal, SerialMessaging) {

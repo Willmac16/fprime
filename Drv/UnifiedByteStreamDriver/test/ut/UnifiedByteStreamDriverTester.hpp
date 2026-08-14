@@ -44,11 +44,11 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! No transport selected leaves the driver disabled with a warning
     void test_transport_none();
 
-    //! A remote endpoint alone resolves to a TCP client
-    void test_tcp_client_configuration();
+    //! A remote endpoint alone makes a TCP transport connect out
+    void test_tcp_connect_configuration();
 
-    //! A local endpoint alone resolves to a TCP server
-    void test_tcp_server_configuration();
+    //! A local endpoint alone makes a TCP transport listen
+    void test_tcp_listen_configuration();
 
     //! Both endpoints at once is not a TCP configuration this driver can serve
     void test_tcp_both_endpoints_rejected();
@@ -56,25 +56,19 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! TCP with no endpoint at all is rejected
     void test_tcp_no_endpoint_rejected();
 
-    //! A TCP client cannot connect to port 0
-    void test_tcp_missing_remote_port_rejected();
-
-    //! Host names are rejected: the IP transports do not resolve them
-    void test_non_dotted_quad_rejected();
-
-    //! Both endpoints resolve to a bidirectional UDP link
+    //! Both endpoints make a bidirectional UDP link
     void test_udp_bidirectional_configuration();
 
-    //! A local endpoint alone resolves to a UDP link that replies to its last sender
+    //! A local endpoint alone makes a UDP link that replies to its last sender
     void test_udp_receive_only_configuration();
 
-    //! A remote endpoint alone resolves to a send-only UDP link
+    //! A remote endpoint alone makes a send-only UDP link
     void test_udp_send_only_configuration();
 
     //! UDP with no endpoint at all is rejected
     void test_udp_no_endpoint_rejected();
 
-    //! A serial device resolves to a serial link
+    //! A serial device makes a serial link
     void test_serial_configuration();
 
     //! SERIAL without a device is rejected
@@ -95,11 +89,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Configuration is resolved once: later changes are reported as deferred
     void test_configuration_change_deferred();
 
-    //! A disabled driver refuses to send rather than reaching for a transport
-    void test_disabled_driver_refuses_send();
-
-    //! Address validation accepts dotted quads and nothing else
-    void test_dotted_quad_validation();
+    //! An unconfigured driver refuses to send rather than reaching for a transport
+    void test_unconfigured_driver_refuses_send();
 
     // ----------------------------------------------------------------------
     // Behavior tests
@@ -108,11 +99,11 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Data flows both ways over a parameter-configured UDP link
     void test_udp_messaging();
 
-    //! Data flows both ways over a parameter-configured TCP client link
-    void test_tcp_client_messaging();
+    //! Data flows both ways over a TCP link that connects out
+    void test_tcp_connect_messaging();
 
-    //! Data flows both ways over a parameter-configured TCP server link
-    void test_tcp_server_messaging();
+    //! Data flows both ways over a TCP link that listens
+    void test_tcp_listen_messaging();
 
     //! Data flows both ways over a parameter-configured serial link, using a pty as the
     //! device so that the test needs no real hardware
@@ -121,7 +112,7 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Buffers handed back on recvReturnIn are deallocated
     void test_buffer_deallocation();
 
-    //! Telemetry reports the resolved mode and the byte counters
+    //! Telemetry reports the transport and the byte counters
     void test_telemetry();
 
   private:
@@ -146,16 +137,20 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Initialize components
     void initComponents();
 
+    //! Build a loopback endpoint on the given port. A port of zero leaves it unset.
+    static IpEndpoint loopback(const U16 port);
+
+    //! An endpoint that is not set
+    static IpEndpoint unset();
+
     //! Set every parameter the driver reads, so that no test depends on another's leftovers
     void setParameters(const ByteStreamTransport transport,
-                       const char* const localAddress,
-                       const U16 localPort,
-                       const char* const remoteAddress,
-                       const U16 remotePort,
+                       const IpEndpoint& localEndpoint,
+                       const IpEndpoint& remoteEndpoint,
                        const char* const serialDevice = "");
 
     //! Push the parameters into the component and resolve them
-    ByteStreamDriverMode loadAndConfigure();
+    ByteStreamTransport loadAndConfigure();
 
     //! Wait for the driver's transport to reach the given open state
     bool wait_on_open(bool open, U32 iterations);

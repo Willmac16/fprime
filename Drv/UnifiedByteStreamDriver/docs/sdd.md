@@ -7,19 +7,25 @@ a link from, say, a UDP socket to a serial line is a parameter change rather tha
 topology change and a rebuild.
 
 For the interface this component implements, see
+[`Drv::ByteStreamDriver`](../../Interfaces/docs/sdd.md) and
 [`Drv::ByteStreamDriverModel`](../../ByteStreamDriverModel/docs/sdd.md). For the underlying
 socket implementations, see [`Drv::Ip`](../../Ip/docs/sdd.md).
 
 ## Design
 
-The component implements the synchronous `Drv.ByteStreamDriver` interface: `send` in,
-`recv` and `ready` out, and `recvReturnIn` to take buffers back. It holds all four
-transports as members and hands whichever one the parameters selected to
-`Drv::SocketComponentHelper`, which supplies the read task, the reconnect task, and the
-open/close lifecycle shared with the other IP drivers.
+The component implements the `Drv.ByteStreamDriver` FPP interface with a plain
+`import ByteStreamDriver`, so it presents exactly the ports the framework's other byte
+stream drivers do: `send` in, `recv` and `ready` out, and `recvReturnIn` to take buffers
+back.
 
-The serial transport reaches that machinery through `Drv::SerialStream`, which implements
-the `Drv::IpSocket` interface — really a byte-stream endpoint interface of
+It reuses the framework's existing transport machinery rather than reimplementing it. The
+transports are `Drv::TcpClientSocket`, `Drv::TcpServerSocket` and `Drv::UdpSocket` — the
+same classes `Drv::TcpClient`, `Drv::TcpServer` and `Drv::Udp` use — and they are driven
+by `Drv::SocketComponentHelper`, which supplies the read task, the reconnect task, and the
+open/close lifecycle shared with those components.
+
+The serial transport reaches that same machinery through `Drv::SerialStream`, which
+implements the `Drv::IpSocket` interface — really a byte-stream endpoint interface of
 `openProtocol`/`sendProtocol`/`recvProtocol` plus close and shutdown — on top of a POSIX
 termios device. That is what lets one component drive TCP, UDP and serial through exactly
 the same read loop. The cost is that `Drv::SocketIpStatus` also carries non-socket errors
@@ -28,24 +34,33 @@ for the serial case; the mapping is documented in `SerialStream.hpp`.
 Holding all four transports as members costs a few hundred bytes and avoids dynamic
 allocation, which matters more.
 
+### Endpoints
+
+An endpoint is a `Drv::IpEndpoint`: four `U8` address octets in dotted-quad order plus a
+`U16` port. Typed octets cannot express an invalid address, so the driver has no address
+parsing or validation to do — a host name simply cannot be entered, and the dotted-quad
+string the socket layer wants is built from the octets.
+
+**A port of zero marks the endpoint as unset.** That is what makes the local and remote
+endpoints optional. It also means an ephemeral port cannot be requested through this
+type; a deployment that needs one should use `Drv::TcpServer` or `Drv::Udp` directly.
+
 ### Resolving the configuration
 
-`TRANSPORT` selects the transport. The endpoints are supplied as an optional local
-address/port pair, an optional remote address/port pair, and an optional serial device. An
-address/port pair counts as supplied when its address parameter is non-empty; a port of 0
-is meaningful on its own (an ephemeral port) and so cannot be used as the "unset" marker.
+`TRANSPORT` selects the transport, and which endpoints are set decides the direction of
+the link.
 
-| `TRANSPORT` | local | remote | resolved mode                                        |
+| `TRANSPORT` | local | remote | behavior                                             |
 |-------------|-------|--------|------------------------------------------------------|
-| `TCP`       | set   | unset  | `TCP_SERVER`, listening on the local endpoint        |
-| `TCP`       | unset | set    | `TCP_CLIENT`, connecting to the remote endpoint      |
+| `TCP`       | set   | unset  | listens on the local endpoint                        |
+| `TCP`       | unset | set    | connects to the remote endpoint                      |
 | `TCP`       | set   | set    | rejected: no transport here both binds and connects  |
 | `TCP`       | unset | unset  | rejected: nothing to listen on or connect to         |
-| `UDP`       | set   | unset  | `UDP`, bound locally, replying to the last sender    |
-| `UDP`       | unset | set    | `UDP`, send-only to the remote endpoint              |
-| `UDP`       | set   | set    | `UDP`, bound locally and sending to the remote       |
+| `UDP`       | set   | unset  | bound locally, replying to the last sender           |
+| `UDP`       | unset | set    | send-only to the remote endpoint                     |
+| `UDP`       | set   | set    | bound locally and sending to the remote endpoint     |
 | `UDP`       | unset | unset  | rejected: nothing to bind or send to                 |
-| `SERIAL`    | any   | any    | `SERIAL`; the IP parameters are warned about, unused |
+| `SERIAL`    | any   | any    | serial device; the IP parameters are warned, unused  |
 | `NONE`      | any   | any    | disabled, with a warning                             |
 
 A combination that cannot be served emits `UnsupportedConfiguration` and leaves the driver
@@ -56,10 +71,6 @@ than a rejection — the link still comes up.
 
 These further checks are applied before any transport is touched:
 
-- Addresses must be dotted-quad IPv4. The IP transports do not resolve host names, so
-  `"localhost"` is rejected up front instead of failing later at open time. Leading zeros
-  are rejected for the same reason `inet_pton` rejects them.
-- A remote endpoint needs a non-zero port; there is nothing to send to on port 0.
 - `RECV_BUFFER_SIZE` must be non-zero.
 - `SEND_TIMEOUT_MICROSECONDS` must be less than 1000000.
 - The requested `SERIAL_BAUD_RATE` must be one this platform's termios defines. Rates above
@@ -74,7 +85,8 @@ leaves the running link alone: rebuilding a transport underneath a live read tas
 safe, so the new value takes effect at the next restart.
 
 A rejected configuration is also final. It is not retried behind the operator's back — the
-warning it emitted is the whole answer, and `start` on a disabled driver runs no tasks.
+warning it emitted is the whole answer, and `start` on a rejected configuration runs no
+tasks.
 
 ## Usage
 
@@ -98,19 +110,17 @@ void exitTasks() {
 }
 ```
 
-`start` is a no-op when the parameters were rejected, so no caller needs to check the mode
-first. `getMode` reports what the parameters resolved to, and `getLocalPort` reports the
-port actually in use, which is how an ephemeral port (a `LOCAL_PORT` of 0) is read back.
+`start` is a no-op when the parameters were rejected, so no caller needs to check first.
+`getTransport` reports what the parameters resolved to, and `getLocalPort` reports the port
+the transport is actually bound to.
 
 ### Parameters
 
 | Parameter | Type | Default | Meaning |
 |---|---|---|---|
 | `TRANSPORT` | `Drv.ByteStreamTransport` | `NONE` | Transport to use |
-| `LOCAL_ADDRESS` | string | `""` | Local IPv4 address; empty leaves the local endpoint unset |
-| `LOCAL_PORT` | `U16` | 0 | Local port; 0 requests an ephemeral port |
-| `REMOTE_ADDRESS` | string | `""` | Remote IPv4 address; empty leaves the remote endpoint unset |
-| `REMOTE_PORT` | `U16` | 0 | Remote port; must be non-zero when a remote address is set |
+| `LOCAL_ENDPOINT` | `Drv.IpEndpoint` | unset | Address to bind to and port to bind it on; a port of zero leaves it unset |
+| `REMOTE_ENDPOINT` | `Drv.IpEndpoint` | unset | Address to talk to and port to talk to it on; a port of zero leaves it unset |
 | `SERIAL_DEVICE` | string | `""` | Serial device path, e.g. `/dev/ttyUSB0` |
 | `SERIAL_BAUD_RATE` | `Drv.SerialBaudRate` | `BAUD_115200` | Baud rate of the line |
 | `SERIAL_PARITY` | `Drv.SerialParity` | `PARITY_NONE` | Parity of the line |
@@ -118,6 +128,9 @@ port actually in use, which is how an ephemeral port (a `LOCAL_PORT` of 0) is re
 | `RECV_BUFFER_SIZE` | `FwSizeType` | 1024 | Size of the buffers allocated for receiving |
 | `SEND_TIMEOUT_SECONDS` | `U32` | 1 | Seconds component of the transmit timeout |
 | `SEND_TIMEOUT_MICROSECONDS` | `U32` | 0 | Microseconds component of the transmit timeout |
+
+The parameters, telemetry channels and events live in `Parameters.fppi`, `Telemetry.fppi`
+and `Events.fppi`, which the component model includes.
 
 ### Serial specifics
 
@@ -144,9 +157,12 @@ That is also why stopping a serial link can take up to a second.
 | Name | Description |
 |---|---|
 | `BytesSent` | Bytes handed to the transport since startup |
-| `BytesReceived` | Bytes received from the transport since startup |
-| `Mode` | Mode resolved from the parameters |
+| `BytesRecv` | Bytes received from the transport since startup |
+| `Transport` | Transport resolved from the parameters |
 | `Connected` | Whether the transport is currently open |
+
+`BytesSent` and `BytesRecv` match `Drv::LinuxUartDriver` in name, type and channel id, so
+ground displays built for that driver work unchanged against this one.
 
 ## Events
 
@@ -166,13 +182,14 @@ That is also why stopping a serial link can take up to a second.
 
 | Name | Description | Validation |
 |---|---|---|
-| UBSD-COMP-001 | The component shall implement the ByteStreamDriver interface | inspection |
+| UBSD-COMP-001 | The component shall implement the Drv.ByteStreamDriver interface | inspection |
 | UBSD-COMP-002 | The component shall select its transport from the TRANSPORT parameter | unit test |
-| UBSD-COMP-003 | The component shall support TCP client, TCP server, UDP and serial transports | unit test |
-| UBSD-COMP-004 | The component shall resolve the driver mode from the optional local and remote address/port pairs | unit test |
-| UBSD-COMP-005 | The component shall emit a warning and remain disabled when the parameters describe an unsupported configuration | unit test |
-| UBSD-COMP-006 | The component shall emit a warning when parameters are supplied that do not apply to the selected transport | unit test |
-| UBSD-COMP-007 | The component shall reject addresses that are not dotted-quad IPv4 addresses | unit test |
-| UBSD-COMP-008 | The component shall report that a parameter change after configuration takes effect on the next restart | unit test |
-| UBSD-COMP-009 | The component shall provide a read thread for transports with a receive direction | unit test |
-| UBSD-COMP-010 | The component shall report the local port in use, including an ephemeral one | unit test |
+| UBSD-COMP-003 | The component shall support TCP, UDP and serial transports | unit test |
+| UBSD-COMP-004 | The component shall accept its IP endpoints as typed address octets and a port | inspection |
+| UBSD-COMP-005 | The component shall treat an endpoint with a zero port as unset | unit test |
+| UBSD-COMP-006 | The component shall resolve the direction of the link from the endpoints supplied | unit test |
+| UBSD-COMP-007 | The component shall emit a warning and remain unconfigured when the parameters describe an unsupported configuration | unit test |
+| UBSD-COMP-008 | The component shall emit a warning when parameters are supplied that do not apply to the selected transport | unit test |
+| UBSD-COMP-009 | The component shall report that a parameter change after configuration takes effect on the next restart | unit test |
+| UBSD-COMP-010 | The component shall provide a read thread for configurations with a receive direction | unit test |
+| UBSD-COMP-011 | The component shall report the local port the transport is bound to | unit test |

@@ -1,19 +1,28 @@
 module Drv {
 
-    @ Size of the address parameter strings. Large enough for a dotted-quad IPv4 address.
-    constant BYTE_STREAM_ADDRESS_STRING_SIZE = 16
-
     @ Size of the serial device path parameter string
     constant BYTE_STREAM_DEVICE_STRING_SIZE = 40
 
-    @ Size of the endpoint description reported in events, e.g. "127.0.0.1:50000"
+    @ Size of the endpoint description reported in events, e.g. "connect 127.0.0.1:50000"
     constant BYTE_STREAM_ENDPOINT_STRING_SIZE = 60
 
-    @ Transport requested from the UnifiedByteStreamDriver via the TRANSPORT parameter
+    @ An IPv4 endpoint: the four address octets plus a port.
+    @
+    @ A port of zero marks the endpoint as unset. That is what makes the local and remote
+    @ endpoints of the UnifiedByteStreamDriver optional, and it is why an ephemeral port
+    @ cannot be requested through this type.
+    struct IpEndpoint {
+        @ Address octets in dotted-quad order, so 127.0.0.1 is [127, 0, 0, 1]
+        address: [4] U8
+        @ Port in host order. Zero leaves the endpoint unset.
+        $port: U16
+    } default { address = 0, $port = 0 }
+
+    @ Transport selected by the UnifiedByteStreamDriver TRANSPORT parameter
     enum ByteStreamTransport {
-        @ No transport requested: the driver stays disabled
+        @ No transport selected: the driver stays disabled
         NONE = 0
-        @ TCP: a client when only a remote endpoint is supplied, a server when only a local endpoint is supplied
+        @ TCP: a client when only a remote endpoint is supplied, a server when only a local one is
         TCP = 1
         @ UDP: receives on the local endpoint and/or sends to the remote endpoint
         UDP = 2
@@ -21,47 +30,25 @@ module Drv {
         SERIAL = 3
     }
 
-    @ Mode the UnifiedByteStreamDriver resolved from its parameters
-    enum ByteStreamDriverMode {
-        @ No usable configuration: the driver neither sends nor receives
-        DISABLED = 0
-        @ TCP client connecting out to the remote endpoint
-        TCP_CLIENT = 1
-        @ TCP server listening on the local endpoint
-        TCP_SERVER = 2
-        @ UDP bound to the local endpoint and/or transmitting to the remote endpoint
-        UDP = 3
-        @ Serial device
-        SERIAL = 4
-    }
-
     @ Reason a parameter set was rejected as an unsupported configuration
     enum ByteStreamConfigError {
-        @ TCP was requested with both a local and a remote endpoint, which this driver cannot serve
+        @ TCP was requested with both a local and a remote endpoint, which no transport serves
         TCP_LOCAL_AND_REMOTE = 0
         @ Neither a local nor a remote endpoint was supplied for an IP transport
         NO_ENDPOINT = 1
-        @ A remote endpoint was supplied without a usable remote port
-        MISSING_REMOTE_PORT = 2
-        @ A local endpoint was supplied without a usable local port
-        MISSING_LOCAL_PORT = 3
         @ SERIAL was requested without a device path
-        NO_SERIAL_DEVICE = 4
-        @ The local address is not a dotted-quad IPv4 address
-        INVALID_LOCAL_ADDRESS = 5
-        @ The remote address is not a dotted-quad IPv4 address
-        INVALID_REMOTE_ADDRESS = 6
-        @ The receive buffer size is zero or larger than this build supports
-        INVALID_BUFFER_SIZE = 7
+        NO_SERIAL_DEVICE = 2
+        @ The receive buffer size is zero
+        INVALID_BUFFER_SIZE = 3
         @ The send timeout microseconds component is 1000000 or greater
-        INVALID_SEND_TIMEOUT = 8
+        INVALID_SEND_TIMEOUT = 4
         @ The requested baud rate is not supported by this platform
-        UNSUPPORTED_BAUD_RATE = 9
+        UNSUPPORTED_BAUD_RATE = 5
     }
 
     @ Group of parameters that does not apply to the selected transport
     enum ByteStreamConfigGroup {
-        @ LOCAL_ADDRESS, LOCAL_PORT, REMOTE_ADDRESS and REMOTE_PORT
+        @ LOCAL_ENDPOINT and REMOTE_ENDPOINT
         IP = 0
         @ SERIAL_DEVICE, SERIAL_BAUD_RATE, SERIAL_PARITY and SERIAL_FLOW_CONTROL
         SERIAL = 1

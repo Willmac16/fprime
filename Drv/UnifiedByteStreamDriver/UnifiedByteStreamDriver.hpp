@@ -36,13 +36,14 @@ namespace Drv {
  * rebuilding a topology.
  *
  * The transport is chosen with the TRANSPORT parameter. The endpoints are given as an
- * optional local address/port pair, an optional remote address/port pair, and an optional
- * serial device, and the pairs that are supplied decide the direction of the link:
+ * optional local Drv::IpEndpoint, an optional remote Drv::IpEndpoint, and an optional
+ * serial device. An endpoint is unset when its port is zero, and which endpoints are set
+ * decides the direction of the link:
  *
- * | TRANSPORT | local | remote | resolved mode                                    |
+ * | TRANSPORT | local | remote | behavior                                         |
  * |-----------|-------|--------|--------------------------------------------------|
- * | TCP       | set   | unset  | TCP server listening on the local endpoint       |
- * | TCP       | unset | set    | TCP client connecting to the remote endpoint     |
+ * | TCP       | set   | unset  | listens on the local endpoint                    |
+ * | TCP       | unset | set    | connects to the remote endpoint                  |
  * | TCP       | set   | set    | rejected: no transport binds and connects        |
  * | UDP       | set   | unset  | bound locally, replies to the last sender        |
  * | UDP       | unset | set    | send-only to the remote endpoint                 |
@@ -58,9 +59,12 @@ namespace Drv {
  * emits ConfigurationChangeDeferred: the new value applies at the next restart, because
  * tearing down and rebuilding a live transport underneath the read task is not safe.
  *
- * All four transports are held as members. They are small, and holding them avoids
- * dynamic allocation while letting `getSocketHandler` hand the shared
- * Drv::SocketComponentHelper machinery whichever transport the parameters selected.
+ * The transports themselves are the ones the rest of the framework already uses:
+ * Drv::TcpClientSocket, Drv::TcpServerSocket and Drv::UdpSocket, driven by the read and
+ * reconnect tasks of Drv::SocketComponentHelper. Drv::SerialStream presents the serial
+ * device through the same Drv::IpSocket interface, so one read loop serves all four. All
+ * four are held as members: they are small, and holding them avoids dynamic allocation
+ * while letting `getSocketHandler` hand the helper whichever one the parameters selected.
  */
 class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBase, public SocketComponentHelper {
     friend class UnifiedByteStreamDriverTester;
@@ -92,16 +96,16 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
      * Only the first call configures the driver. Later calls report
      * ConfigurationChangeDeferred and leave the existing configuration alone.
      *
-     * \return the resolved mode, DISABLED when the parameters were rejected
+     * \return the transport in use, NONE when the parameters were rejected
      */
-    ByteStreamDriverMode configure();
+    ByteStreamTransport configure();
 
     /**
      * \brief start the driver's read and reconnect tasks
      *
      * Configures from parameters when that has not happened yet. Starts no tasks when the
-     * configuration resolved to DISABLED, so a rejected configuration costs nothing at
-     * runtime beyond the warning it already emitted.
+     * configuration was rejected, so a rejected configuration costs nothing at runtime
+     * beyond the warning it already emitted.
      *
      * \param priority: priority of the read task. See: Os::Task::start
      * \param stack: stack size of the read task. See: Os::Task::start
@@ -114,7 +118,7 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     /**
      * \brief stop the driver's tasks and close the transport
      *
-     * Safe to call when the driver was never started or resolved to DISABLED.
+     * Safe to call when the driver was never started or was never configured.
      */
     void stop();
 
@@ -126,34 +130,21 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     Os::Task::Status join();
 
     /**
-     * \brief get the mode resolved from the parameters
+     * \brief get the transport resolved from the parameters
      *
-     * \return resolved mode, DISABLED until `configure` has run or when it was rejected
+     * \return transport in use, NONE until `configure` has run or when it was rejected
      */
-    ByteStreamDriverMode getMode() const;
+    ByteStreamTransport getTransport() const;
 
     /**
-     * \brief get the local port the driver is actually using
+     * \brief get the local port the transport is actually bound to
      *
-     * Most useful when LOCAL_PORT was 0 and the port was assigned when the transport
-     * opened. Returns 0 for modes that do not bind a local port, and before the transport
-     * has been opened.
+     * Returns 0 for configurations that bind no local port, and before the transport has
+     * been opened.
      *
      * \return local port in use
      */
     U16 getLocalPort();
-
-    /**
-     * \brief check whether an address is a dotted-quad IPv4 address
-     *
-     * The IP transports do not resolve host names, so an address that is not a dotted quad
-     * would only fail once the socket was opened. Checking up front turns that into a
-     * configuration warning. Leading zeros are rejected, matching inet_pton.
-     *
-     * \param address: NUL-terminated address to check
-     * \return true when the address is a dotted-quad IPv4 address
-     */
-    static bool isDottedQuadIpv4(const char* const address);
 
   protected:
     // ----------------------------------------------------------------------
@@ -172,9 +163,9 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief called when the transport has opened
     void connected() override;
 
-    //! \brief drive the read task, adapted to the resolved mode
+    //! \brief drive the read task, adapted to the resolved configuration
     //!
-    //! A TCP server has to bring up its listening socket first and tear it down at the
+    //! A TCP listener has to bring up its listening socket first and tear it down at the
     //! end. A send-only transport has no receive direction to read, so it holds the
     //! transport open instead of reading from it. Everything else uses the standard loop.
     void readLoop() override;
@@ -197,7 +188,7 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief send data out of the driver
     //!
     //! Returns SEND_RETRY when the transport is momentarily unavailable and the caller
-    //! should retry, OTHER_ERROR when the driver is disabled or the failure is not
+    //! should retry, OTHER_ERROR when the driver is unconfigured or the failure is not
     //! recoverable, and OP_OK once the data has been handed to the transport.
     Drv::ByteStreamStatus send_handler(const FwIndexType portNum, Fw::Buffer& fwBuffer) override;
 
@@ -213,23 +204,21 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     //! \brief parameter values read as a set, so that validation sees one consistent view
     struct Parameters {
-        ByteStreamTransport transport = ByteStreamTransport::NONE;
-        Fw::ParamString localAddress;
-        U16 localPort = 0;
-        Fw::ParamString remoteAddress;
-        U16 remotePort = 0;
+        ByteStreamTransport transport;
+        IpEndpoint localEndpoint;
+        IpEndpoint remoteEndpoint;
         Fw::ParamString serialDevice;
-        SerialBaudRate baudRate = SerialBaudRate::BAUD_115200;
-        SerialParity parity = SerialParity::PARITY_NONE;
-        SerialFlowControl flowControl = SerialFlowControl::FLOW_NONE;
+        SerialBaudRate baudRate;
+        SerialParity parity;
+        SerialFlowControl flowControl;
         FwSizeType recvBufferSize = 0;
         U32 sendTimeoutSeconds = 0;
         U32 sendTimeoutMicroseconds = 0;
 
-        //! \brief whether a local address/port pair was supplied
-        bool hasLocal() const { return this->localAddress.length() > 0; }
-        //! \brief whether a remote address/port pair was supplied
-        bool hasRemote() const { return this->remoteAddress.length() > 0; }
+        //! \brief whether a local endpoint was supplied
+        bool hasLocal() const { return this->localEndpoint.get_port() != 0; }
+        //! \brief whether a remote endpoint was supplied
+        bool hasRemote() const { return this->remoteEndpoint.get_port() != 0; }
         //! \brief whether a serial device was supplied
         bool hasSerial() const { return this->serialDevice.length() > 0; }
     };
@@ -237,56 +226,63 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief read every parameter into a single snapshot
     Parameters readParameters();
 
-    //! \brief configure a TCP client or server from the parameters
-    //! \return resolved mode, DISABLED when the combination was rejected
-    ByteStreamDriverMode configureTcp(const Parameters& parameters);
+    //! \brief configure TCP from the parameters
+    //! \return transport in use, NONE when the combination was rejected
+    ByteStreamTransport configureTcp(const Parameters& parameters);
 
     //! \brief configure UDP from the parameters
-    //! \return resolved mode, DISABLED when the combination was rejected
-    ByteStreamDriverMode configureUdp(const Parameters& parameters);
+    //! \return transport in use, NONE when the combination was rejected
+    ByteStreamTransport configureUdp(const Parameters& parameters);
 
     //! \brief configure the serial device from the parameters
-    //! \return resolved mode, DISABLED when the combination was rejected
-    ByteStreamDriverMode configureSerial(const Parameters& parameters);
+    //! \return transport in use, NONE when the combination was rejected
+    ByteStreamTransport configureSerial(const Parameters& parameters);
 
     //! \brief report a rejected configuration
-    //! \return DISABLED, so that callers can return this directly
-    ByteStreamDriverMode reject(const ByteStreamTransport transport, const ByteStreamConfigError error) const;
+    //! \return NONE, so that callers can return this directly
+    ByteStreamTransport reject(const ByteStreamTransport transport, const ByteStreamConfigError error) const;
+
+    //! \brief render an endpoint's octets as the dotted-quad string the sockets take
+    static void formatAddress(const IpEndpoint& endpoint, Fw::String& address);
+
+    //! \brief build the endpoint description reported in events
+    void buildEndpoint(const Parameters& parameters);
 
     //! \brief hold the transport open without reading, for a send-only configuration
     void holdOpenLoop();
 
-    //! \brief bring up the TCP server's listening socket
+    //! \brief bring up the TCP listening socket
     SocketIpStatus startupServer();
 
-    //! \brief tear down the TCP server's listening socket
+    //! \brief tear down the TCP listening socket
     void terminateServer();
-
-    //! \brief build the endpoint description from the resolved mode and parameters
-    //!
-    //! A local port of 0 asks the system for an ephemeral port, which is only known once
-    //! the transport has opened, so this prefers the port actually in use.
-    void buildEndpoint();
 
     // ----------------------------------------------------------------------
     // Member variables
     // ----------------------------------------------------------------------
 
-    TcpClientSocket m_tcpClient;  //!< TCP client transport
-    TcpServerSocket m_tcpServer;  //!< TCP server transport
+    TcpClientSocket m_tcpClient;  //!< TCP connecting transport
+    TcpServerSocket m_tcpServer;  //!< TCP listening transport
     UdpSocket m_udp;              //!< UDP transport
     SerialStream m_serial;        //!< Serial transport
 
-    Parameters m_parameters;      //!< Snapshot of the parameters the configuration came from
-    ByteStreamDriverMode m_mode;  //!< Mode resolved from the parameters
-    Fw::String m_endpoint;        //!< Human-readable description of the resolved endpoint
-    FwSizeType m_allocationSize;  //!< Size of the buffers allocated for receiving
-    bool m_receiveEnabled;        //!< Whether the resolved mode has a receive direction
-    bool m_configured;            //!< Whether configure() has already run
-    bool m_started;               //!< Whether the tasks have been started
+    //! Transport resolved from the parameters, NONE until configured or when rejected
+    ByteStreamTransport m_transport = ByteStreamTransport::NONE;
+    //! Whether a TCP transport listens rather than connects
+    bool m_listening = false;
+    //! Human-readable description of the resolved endpoint
+    Fw::String m_endpoint;
+    //! Size of the buffers allocated for receiving
+    FwSizeType m_allocationSize = 0;
+    //! Whether the resolved configuration has a receive direction
+    bool m_receiveEnabled = false;
+    //! Whether configure() has already run
+    bool m_configured = false;
+    //! Whether the tasks have been started
+    bool m_started = false;
 
-    std::atomic<FwSizeType> m_bytesSent;      //!< Bytes handed to the transport
-    std::atomic<FwSizeType> m_bytesReceived;  //!< Bytes received from the transport
+    std::atomic<FwSizeType> m_bytesSent{0};      //!< Bytes handed to the transport
+    std::atomic<FwSizeType> m_bytesReceived{0};  //!< Bytes received from the transport
 };
 
 }  // namespace Drv

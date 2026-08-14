@@ -18,7 +18,6 @@
 #include <termios.h>
 #include <unistd.h>
 #include <cerrno>
-#include <cstring>
 
 namespace Drv {
 
@@ -69,14 +68,7 @@ bool baudToSpeed(const SerialBaudRate baud, speed_t& speed) {
 
 }  // namespace
 
-SerialStream::SerialStream()
-    : IpSocket(),
-      m_baud(SerialBaudRate::BAUD_115200),
-      m_parity(SerialParity::PARITY_NONE),
-      m_flowControl(SerialFlowControl::FLOW_NONE),
-      m_stop(false) {
-    (void)::memset(this->m_device, 0, sizeof(this->m_device));
-}
+SerialStream::SerialStream() : IpSocket() {}
 
 SerialStream::~SerialStream() {}
 

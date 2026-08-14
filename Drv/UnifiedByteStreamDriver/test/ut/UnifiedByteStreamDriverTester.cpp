@@ -28,7 +28,7 @@ Os::Console logger;
 namespace Drv {
 
 namespace {
-//! Address used by every test that needs a routable endpoint
+//! Dotted-quad form of the loopback endpoints these tests use
 const char* const LOOPBACK = "127.0.0.1";
 //! Serial device path used by the configuration tests. Nothing is opened, so the device
 //! does not need to exist on the machine running the tests.
@@ -57,22 +57,25 @@ UnifiedByteStreamDriverTester::~UnifiedByteStreamDriverTester() {}
 // Helpers
 // ----------------------------------------------------------------------
 
+IpEndpoint UnifiedByteStreamDriverTester::loopback(const U16 port) {
+    const U8 address[4] = {127, 0, 0, 1};
+    return IpEndpoint(address, port);
+}
+
+IpEndpoint UnifiedByteStreamDriverTester::unset() {
+    const U8 address[4] = {0, 0, 0, 0};
+    return IpEndpoint(address, 0);
+}
+
 void UnifiedByteStreamDriverTester::setParameters(const ByteStreamTransport transport,
-                                                  const char* const localAddress,
-                                                  const U16 localPort,
-                                                  const char* const remoteAddress,
-                                                  const U16 remotePort,
+                                                  const IpEndpoint& localEndpoint,
+                                                  const IpEndpoint& remoteEndpoint,
                                                   const char* const serialDevice) {
-    Fw::String value;
     this->paramSet_TRANSPORT(transport, Fw::ParamValid::VALID);
-    value = localAddress;
-    this->paramSet_LOCAL_ADDRESS(value, Fw::ParamValid::VALID);
-    this->paramSet_LOCAL_PORT(localPort, Fw::ParamValid::VALID);
-    value = remoteAddress;
-    this->paramSet_REMOTE_ADDRESS(value, Fw::ParamValid::VALID);
-    this->paramSet_REMOTE_PORT(remotePort, Fw::ParamValid::VALID);
-    value = serialDevice;
-    this->paramSet_SERIAL_DEVICE(value, Fw::ParamValid::VALID);
+    this->paramSet_LOCAL_ENDPOINT(localEndpoint, Fw::ParamValid::VALID);
+    this->paramSet_REMOTE_ENDPOINT(remoteEndpoint, Fw::ParamValid::VALID);
+    Fw::String device(serialDevice);
+    this->paramSet_SERIAL_DEVICE(device, Fw::ParamValid::VALID);
     this->paramSet_SERIAL_BAUD_RATE(SerialBaudRate::BAUD_115200, Fw::ParamValid::VALID);
     this->paramSet_SERIAL_PARITY(SerialParity::PARITY_NONE, Fw::ParamValid::VALID);
     this->paramSet_SERIAL_FLOW_CONTROL(SerialFlowControl::FLOW_NONE, Fw::ParamValid::VALID);
@@ -84,11 +87,11 @@ void UnifiedByteStreamDriverTester::setParameters(const ByteStreamTransport tran
     this->paramSet_SEND_TIMEOUT_MICROSECONDS(timeoutMicroseconds, Fw::ParamValid::VALID);
 }
 
-ByteStreamDriverMode UnifiedByteStreamDriverTester::loadAndConfigure() {
+ByteStreamTransport UnifiedByteStreamDriverTester::loadAndConfigure() {
     // loadParameters pulls every parameter over the prmGet port and then calls
     // parametersLoaded, which is where the driver resolves its configuration
     this->component.loadParameters();
-    return this->component.getMode();
+    return this->component.getTransport();
 }
 
 bool UnifiedByteStreamDriverTester::wait_on_open(bool open, U32 iterations) {
@@ -116,108 +119,94 @@ bool UnifiedByteStreamDriverTester::wait_on_receive(U32 iterations) {
 // ----------------------------------------------------------------------
 
 void UnifiedByteStreamDriverTester::test_transport_none() {
-    this->setParameters(ByteStreamTransport::NONE, "", 0, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    this->setParameters(ByteStreamTransport::NONE, unset(), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_TransportNotConfigured_SIZE(1);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(0);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_client_configuration() {
-    this->setParameters(ByteStreamTransport::TCP, "", 0, LOOPBACK, 50000);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::TCP_CLIENT);
+void UnifiedByteStreamDriverTester::test_tcp_connect_configuration() {
+    this->setParameters(ByteStreamTransport::TCP, unset(), loopback(50000));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamDriverMode::TCP_CLIENT, "127.0.0.1:50000");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP, "connect 127.0.0.1:50000");
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
-    // A TCP client has no local port of its own to report
+    // A connecting socket has no local port of its own to report
     ASSERT_EQ(this->component.getLocalPort(), 0);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_server_configuration() {
-    this->setParameters(ByteStreamTransport::TCP, LOOPBACK, 50001, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::TCP_SERVER);
+void UnifiedByteStreamDriverTester::test_tcp_listen_configuration() {
+    this->setParameters(ByteStreamTransport::TCP, loopback(50001), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamDriverMode::TCP_SERVER, "127.0.0.1:50001");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP, "listen 127.0.0.1:50001");
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_both_endpoints_rejected() {
-    this->setParameters(ByteStreamTransport::TCP, LOOPBACK, 50002, LOOPBACK, 50003);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    this->setParameters(ByteStreamTransport::TCP, loopback(50002), loopback(50003));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::TCP_LOCAL_AND_REMOTE);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(0);
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_no_endpoint_rejected() {
-    this->setParameters(ByteStreamTransport::TCP, "", 0, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    this->setParameters(ByteStreamTransport::TCP, unset(), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::NO_ENDPOINT);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_missing_remote_port_rejected() {
-    this->setParameters(ByteStreamTransport::TCP, "", 0, LOOPBACK, 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
-    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::MISSING_REMOTE_PORT);
-}
-
-void UnifiedByteStreamDriverTester::test_non_dotted_quad_rejected() {
-    this->setParameters(ByteStreamTransport::TCP, "", 0, "localhost", 50004);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
-    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::INVALID_REMOTE_ADDRESS);
-}
-
 void UnifiedByteStreamDriverTester::test_udp_bidirectional_configuration() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50005, LOOPBACK, 50006);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50005), loopback(50006));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamDriverMode::UDP, "127.0.0.1:50005 -> 127.0.0.1:50006");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50005 send 127.0.0.1:50006");
 }
 
 void UnifiedByteStreamDriverTester::test_udp_receive_only_configuration() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50007, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50007), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamDriverMode::UDP, "127.0.0.1:50007");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50007");
     ASSERT_TRUE(this->component.m_receiveEnabled);
 }
 
 void UnifiedByteStreamDriverTester::test_udp_send_only_configuration() {
-    this->setParameters(ByteStreamTransport::UDP, "", 0, LOOPBACK, 50008);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, unset(), loopback(50008));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamDriverMode::UDP, "127.0.0.1:50008");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "send 127.0.0.1:50008");
     // Nothing is bound locally, so there is no receive direction to read
     ASSERT_FALSE(this->component.m_receiveEnabled);
 }
 
 void UnifiedByteStreamDriverTester::test_udp_no_endpoint_rejected() {
-    this->setParameters(ByteStreamTransport::UDP, "", 0, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    this->setParameters(ByteStreamTransport::UDP, unset(), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::NO_ENDPOINT);
 }
 
 void UnifiedByteStreamDriverTester::test_serial_configuration() {
-    this->setParameters(ByteStreamTransport::SERIAL, "", 0, "", 0, TEST_DEVICE);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::SERIAL);
+    this->setParameters(ByteStreamTransport::SERIAL, unset(), unset(), TEST_DEVICE);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::SERIAL);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamDriverMode::SERIAL, "/dev/ttyUSB0 @ 115200");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::SERIAL, "/dev/ttyUSB0 @ 115200");
     ASSERT_EVENTS_IgnoredConfiguration_SIZE(0);
 }
 
 void UnifiedByteStreamDriverTester::test_serial_missing_device_rejected() {
-    this->setParameters(ByteStreamTransport::SERIAL, "", 0, "", 0, "");
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    this->setParameters(ByteStreamTransport::SERIAL, unset(), unset(), "");
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::SERIAL, ByteStreamConfigError::NO_SERIAL_DEVICE);
 }
 
 void UnifiedByteStreamDriverTester::test_serial_ignores_ip_parameters() {
-    this->setParameters(ByteStreamTransport::SERIAL, LOOPBACK, 50009, "", 0, TEST_DEVICE);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::SERIAL);
+    this->setParameters(ByteStreamTransport::SERIAL, loopback(50009), unset(), TEST_DEVICE);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::SERIAL);
     ASSERT_EVENTS_IgnoredConfiguration_SIZE(1);
     ASSERT_EVENTS_IgnoredConfiguration(0, ByteStreamConfigGroup::IP, ByteStreamTransport::SERIAL);
     // Ignoring parameters is a warning, not a rejection: the serial link still comes up
@@ -225,75 +214,54 @@ void UnifiedByteStreamDriverTester::test_serial_ignores_ip_parameters() {
 }
 
 void UnifiedByteStreamDriverTester::test_ip_ignores_serial_parameters() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50010, "", 0, TEST_DEVICE);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50010), unset(), TEST_DEVICE);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_IgnoredConfiguration_SIZE(1);
     ASSERT_EVENTS_IgnoredConfiguration(0, ByteStreamConfigGroup::SERIAL, ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
 }
 
 void UnifiedByteStreamDriverTester::test_invalid_buffer_size_rejected() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50011, "", 0);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50011), unset());
     const FwSizeType zero = 0;
     this->paramSet_RECV_BUFFER_SIZE(zero, Fw::ParamValid::VALID);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::INVALID_BUFFER_SIZE);
 }
 
 void UnifiedByteStreamDriverTester::test_invalid_send_timeout_rejected() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50012, "", 0);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50012), unset());
     const U32 tooLarge = 1000000;
     this->paramSet_SEND_TIMEOUT_MICROSECONDS(tooLarge, Fw::ParamValid::VALID);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::INVALID_SEND_TIMEOUT);
 }
 
 void UnifiedByteStreamDriverTester::test_configuration_change_deferred() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50013, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50013), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationChangeDeferred_SIZE(0);
 
     // A second resolution must not disturb the configuration already in place
-    this->setParameters(ByteStreamTransport::SERIAL, "", 0, "", 0, TEST_DEVICE);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::SERIAL, unset(), unset(), TEST_DEVICE);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationChangeDeferred_SIZE(1);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
 }
 
-void UnifiedByteStreamDriverTester::test_disabled_driver_refuses_send() {
-    this->setParameters(ByteStreamTransport::NONE, "", 0, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::DISABLED);
+void UnifiedByteStreamDriverTester::test_unconfigured_driver_refuses_send() {
+    this->setParameters(ByteStreamTransport::NONE, unset(), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
 
     U8 data[8] = {};
     Fw::Buffer buffer(data, sizeof(data));
     ASSERT_EQ(this->invoke_to_send(0, buffer), ByteStreamStatus::OTHER_ERROR);
 
-    // Starting a disabled driver is a no-op rather than an error
+    // Starting an unconfigured driver is a no-op rather than an error
     this->component.start();
     ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
-}
-
-void UnifiedByteStreamDriverTester::test_dotted_quad_validation() {
-    ASSERT_TRUE(UnifiedByteStreamDriver::isDottedQuadIpv4("0.0.0.0"));
-    ASSERT_TRUE(UnifiedByteStreamDriver::isDottedQuadIpv4("127.0.0.1"));
-    ASSERT_TRUE(UnifiedByteStreamDriver::isDottedQuadIpv4("255.255.255.255"));
-    ASSERT_TRUE(UnifiedByteStreamDriver::isDottedQuadIpv4("192.168.1.10"));
-
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4(""));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("localhost"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("1.2.3"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("1.2.3.4.5"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("1.2.3."));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("256.1.1.1"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("1.1.1.1234"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("1.1.1.-1"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("1.1.1.1 "));
-    // Rejected for the same reason inet_pton rejects it: a leading zero is octal notation
-    // to some parsers and would make the address ambiguous
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("010.1.1.1"));
-    ASSERT_FALSE(UnifiedByteStreamDriver::isDottedQuadIpv4("::1"));
 }
 
 // ----------------------------------------------------------------------
@@ -311,8 +279,8 @@ void UnifiedByteStreamDriverTester::test_udp_messaging() {
         GTEST_SKIP() << "Could not find two free UDP ports";
     }
 
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, driverPort, LOOPBACK, peerPort);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, loopback(driverPort), loopback(peerPort));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
 
     // The peer is the mirror image of the driver's configuration
     Drv::UdpSocket peer;
@@ -326,6 +294,7 @@ void UnifiedByteStreamDriverTester::test_udp_messaging() {
     // Keep the read thread from blocking forever should a datagram go missing
     Drv::Test::force_recv_timeout(this->component.m_descriptor.fd, this->component.getSocketHandler());
     Drv::Test::force_recv_timeout(peerDescriptor.fd, peer);
+    ASSERT_EQ(this->component.getLocalPort(), driverPort);
 
     // Driver to peer
     U8 received[sizeof(this->m_data_storage)] = {};
@@ -356,7 +325,7 @@ void UnifiedByteStreamDriverTester::test_udp_messaging() {
     ASSERT_from_ready_SIZE(1);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_client_messaging() {
+void UnifiedByteStreamDriverTester::test_tcp_connect_messaging() {
     const U16 port = Drv::Test::get_free_port();
     ASSERT_NE(port, 0);
 
@@ -366,8 +335,8 @@ void UnifiedByteStreamDriverTester::test_tcp_client_messaging() {
     ASSERT_EQ(peer.configure(LOOPBACK, port, 0, 100), Drv::SOCK_SUCCESS);
     ASSERT_EQ(peer.startup(peerDescriptor), Drv::SOCK_SUCCESS);
 
-    this->setParameters(ByteStreamTransport::TCP, "", 0, LOOPBACK, port);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::TCP_CLIENT);
+    this->setParameters(ByteStreamTransport::TCP, unset(), loopback(port));
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP);
 
     this->component.start();
     // The accept completes once the driver's reconnect thread has connected
@@ -405,12 +374,12 @@ void UnifiedByteStreamDriverTester::test_tcp_client_messaging() {
     ASSERT_from_ready_SIZE(1);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_server_messaging() {
+void UnifiedByteStreamDriverTester::test_tcp_listen_messaging() {
     const U16 port = Drv::Test::get_free_port();
     ASSERT_NE(port, 0);
 
-    this->setParameters(ByteStreamTransport::TCP, LOOPBACK, port, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::TCP_SERVER);
+    this->setParameters(ByteStreamTransport::TCP, loopback(port), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP);
     this->component.start();
 
     // Retry the connection: the driver's listener comes up on its read thread
@@ -428,6 +397,7 @@ void UnifiedByteStreamDriverTester::test_tcp_server_messaging() {
     ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never accepted the connection";
     Drv::Test::force_recv_timeout(this->component.m_descriptor.fd, this->component.getSocketHandler());
     Drv::Test::force_recv_timeout(peerDescriptor.fd, peer);
+    ASSERT_EQ(this->component.getLocalPort(), port);
 
     // Driver to peer
     U8 received[sizeof(this->m_data_storage)] = {};
@@ -468,8 +438,8 @@ void UnifiedByteStreamDriverTester::test_serial_messaging() {
     const char* const device = ::ptsname(master);
     ASSERT_NE(device, nullptr);
 
-    this->setParameters(ByteStreamTransport::SERIAL, "", 0, "", 0, device);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::SERIAL);
+    this->setParameters(ByteStreamTransport::SERIAL, unset(), unset(), device);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::SERIAL);
 
     this->component.start();
     ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never opened " << device;
@@ -520,16 +490,16 @@ void UnifiedByteStreamDriverTester::test_buffer_deallocation() {
 }
 
 void UnifiedByteStreamDriverTester::test_telemetry() {
-    this->setParameters(ByteStreamTransport::UDP, LOOPBACK, 50014, "", 0);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamDriverMode::UDP);
+    this->setParameters(ByteStreamTransport::UDP, loopback(50014), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
 
     this->invoke_to_run(0, 0);
-    ASSERT_TLM_Mode_SIZE(1);
-    ASSERT_TLM_Mode(0, ByteStreamDriverMode::UDP);
+    ASSERT_TLM_Transport_SIZE(1);
+    ASSERT_TLM_Transport(0, ByteStreamTransport::UDP);
     ASSERT_TLM_BytesSent_SIZE(1);
     ASSERT_TLM_BytesSent(0, 0);
-    ASSERT_TLM_BytesReceived_SIZE(1);
-    ASSERT_TLM_BytesReceived(0, 0);
+    ASSERT_TLM_BytesRecv_SIZE(1);
+    ASSERT_TLM_BytesRecv(0, 0);
     ASSERT_TLM_Connected_SIZE(1);
     ASSERT_TLM_Connected(0, false);
 }
