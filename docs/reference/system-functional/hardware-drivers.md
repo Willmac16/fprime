@@ -10,6 +10,7 @@
 - [F Prime TcpClient SDD](https://github.com/nasa/fprime/blob/devel/Drv/TcpClient/docs/sdd.md)
 - [F Prime TcpServer SDD](https://github.com/nasa/fprime/blob/devel/Drv/TcpServer/docs/sdd.md)
 - [F Prime Udp SDD](https://github.com/nasa/fprime/blob/devel/Drv/Udp/docs/sdd.md)
+- [F Prime UnifiedByteStreamDriver SDD](https://github.com/nasa/fprime/blob/devel/Drv/UnifiedByteStreamDriver/docs/sdd.md)
 - [F Prime Ip SDD](https://github.com/nasa/fprime/blob/devel/Drv/Ip/docs/sdd.md)
 - [F Prime LinuxUartDriver SDD](https://github.com/nasa/fprime/blob/devel/Drv/LinuxUartDriver/docs/sdd.md)
 - [F Prime LinuxGpioDriver SDD](https://github.com/nasa/fprime/blob/devel/Drv/LinuxGpioDriver/docs/sdd.md)
@@ -54,6 +55,10 @@ These drivers share a common IP helper layer that provides socket management, ad
 ### Serial Communication
 
 The Linux UART Driver provides byte stream access to serial ports on Linux systems. It implements the byte stream driver model, allowing it to be used interchangeably with network drivers in the communication stack.
+
+### Unified Byte Stream Driver
+
+The Unified Byte Stream Driver covers all of the above transports in a single component and selects between them from its parameters instead of from the topology. The transport is chosen with a parameter, and the endpoints are supplied as an optional local address/port pair, an optional remote address/port pair, and an optional serial device. Combinations the underlying transports cannot serve — TCP asked to both bind and connect, an IP transport with no endpoint at all, serial with no device — are reported as warning events and leave the driver disabled rather than half-configured. Parameters that do not apply to the selected transport are reported as ignored.
 
 ### GPIO
 
