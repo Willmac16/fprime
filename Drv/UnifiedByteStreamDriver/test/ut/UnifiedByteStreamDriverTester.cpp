@@ -315,13 +315,15 @@ void UnifiedByteStreamDriverTester::test_ephemeral_port_reported() {
     const U16 assigned = this->component.getLocalPort();
     ASSERT_NE(assigned, 0) << "Ephemeral port was never assigned";
 
+    // The read task is what logs PortOpened, and the event history it logs into is not
+    // synchronized, so join before reading that history
+    this->component.stop();
+    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
+
     // PortOpened carries the assigned port, not the zero that was asked for
     Fw::String expected;
     (void)expected.format("bind 127.0.0.1:%hu", assigned);
     ASSERT_EVENTS_PortOpened(0, ByteStreamTransport::UDP, expected.toChar());
-
-    this->component.stop();
-    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
 }
 
 // ----------------------------------------------------------------------

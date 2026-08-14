@@ -96,6 +96,9 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! A TCP client and a serial line bind no port of their own. A UDP link and a TCP
     //! listener report the port they were given, which for a zero port is the ephemeral one
     //! the system assigned once the transport opened.
+    //!
+    //! The read task is what assigns that port, so a caller on another thread should see
+    //! `isOpened` first: that read is what orders the assignment ahead of this one.
     U16 getLocalPort();
 
   protected:
