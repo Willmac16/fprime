@@ -149,6 +149,8 @@ void UnifiedByteStreamDriverTester::test_tcp_listen_configuration() {
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_both_endpoints_rejected() {
+    // A connecting socket binds where the system tells it to, so a local endpoint asked for
+    // alongside a destination is a request that cannot be honored
     this->setParameters(ByteStreamTransport::TCP, loopback(50002), loopback(50003));
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
@@ -156,11 +158,13 @@ void UnifiedByteStreamDriverTester::test_tcp_both_endpoints_rejected() {
     ASSERT_EVENTS_ConfigurationApplied_SIZE(0);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_no_endpoint_rejected() {
+void UnifiedByteStreamDriverTester::test_tcp_wildcard_listen() {
+    // Nothing supplied at all: no destination means listen, and a zero local endpoint is a
+    // wildcard bind rather than a missing one
     this->setParameters(ByteStreamTransport::TCP, unset(), unset());
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
-    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::NO_ENDPOINT);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP);
+    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP, "listen 0.0.0.0:0");
 }
 
 void UnifiedByteStreamDriverTester::test_udp_bidirectional_configuration() {
@@ -175,23 +179,24 @@ void UnifiedByteStreamDriverTester::test_udp_receive_only_configuration() {
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
     ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50007");
-    ASSERT_TRUE(this->component.m_receiveEnabled);
 }
 
-void UnifiedByteStreamDriverTester::test_udp_send_only_configuration() {
+void UnifiedByteStreamDriverTester::test_udp_remote_only_configuration() {
+    // A destination with no local endpoint asked for still binds: the wildcard bind is the
+    // ephemeral one an unbound sender would have been given anyway
     this->setParameters(ByteStreamTransport::UDP, unset(), loopback(50008));
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "send 127.0.0.1:50008");
-    // Nothing is bound locally, so there is no receive direction to read
-    ASSERT_FALSE(this->component.m_receiveEnabled);
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 0.0.0.0:0 send 127.0.0.1:50008");
 }
 
-void UnifiedByteStreamDriverTester::test_udp_no_endpoint_rejected() {
+void UnifiedByteStreamDriverTester::test_udp_wildcard_bind() {
+    // Nothing supplied at all: bind every interface on an ephemeral port and reply to
+    // whoever sends the first datagram
     this->setParameters(ByteStreamTransport::UDP, unset(), unset());
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
-    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(1);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::NO_ENDPOINT);
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 0.0.0.0:0");
 }
 
 void UnifiedByteStreamDriverTester::test_serial_configuration() {
@@ -281,25 +286,23 @@ void UnifiedByteStreamDriverTester::test_wildcard_local_port_is_set() {
     this->setParameters(ByteStreamTransport::UDP, loopback(0), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
     ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:0");
-    ASSERT_TRUE(this->component.m_receiveEnabled);
 }
 
-void UnifiedByteStreamDriverTester::test_tcp_wildcard_remote_port_rejected() {
+void UnifiedByteStreamDriverTester::test_incomplete_remote_rejected() {
+    // An address with no port addresses no destination, so it is rejected rather than
+    // being taken for "no destination"
     this->setParameters(ByteStreamTransport::TCP, unset(), loopback(0));
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP, ByteStreamConfigError::MISSING_REMOTE_PORT);
+    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP,
+                                           ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
 }
 
-void UnifiedByteStreamDriverTester::test_udp_reply_to_sender_needs_local() {
-    // A remote wildcard port means "reply to the last sender", which needs a bound local
-    this->setParameters(ByteStreamTransport::UDP, unset(), loopback(0));
+void UnifiedByteStreamDriverTester::test_remote_port_without_address_rejected() {
+    // The mirror image: a port with no address to send it to
+    this->setParameters(ByteStreamTransport::UDP, unset(), endpoint(0, 0, 0, 0, 50017));
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::NO_ENDPOINT);
-
-    // With a local endpoint it is a usable reply-to-sender configuration
-    Drv::UnifiedByteStreamDriverTester other;
-    other.setParameters(ByteStreamTransport::UDP, other.loopback(50016), other.loopback(0));
-    ASSERT_EQ(other.loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP,
+                                           ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
 }
 
 void UnifiedByteStreamDriverTester::test_ephemeral_port_reported() {
@@ -537,15 +540,14 @@ void UnifiedByteStreamDriverTester::test_serial_messaging() {
     ASSERT_from_ready_SIZE(1);
 }
 
-void UnifiedByteStreamDriverTester::test_udp_send_only_messaging() {
+void UnifiedByteStreamDriverTester::test_udp_remote_only_messaging() {
     const U16 peerPort = Drv::Test::get_free_port(true);
     ASSERT_NE(peerPort, 0);
 
-    // No local endpoint, so the driver has nothing to read and holds the transport open for
-    // the send path alone
+    // A destination and nothing else. The wildcard bind that comes with it is what lets the
+    // peer's reply arrive, on a port neither side named ahead of time.
     this->setParameters(ByteStreamTransport::UDP, unset(), loopback(peerPort));
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
-    ASSERT_FALSE(this->component.m_receiveEnabled);
 
     Drv::UdpSocket peer;
     Drv::SocketDescriptor peerDescriptor;
@@ -553,10 +555,11 @@ void UnifiedByteStreamDriverTester::test_udp_send_only_messaging() {
     ASSERT_EQ(peer.open(peerDescriptor), Drv::SOCK_SUCCESS);
 
     this->component.start();
-    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never opened its send-only UDP socket";
+    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never opened its UDP socket";
+    Drv::Test::force_recv_timeout(this->component.m_descriptor.fd, this->component.getSocketHandler());
     Drv::Test::force_recv_timeout(peerDescriptor.fd, peer);
-    // Nothing is bound locally, so there is no local port to report
-    ASSERT_EQ(this->component.getLocalPort(), 0);
+    // The wildcard bind still took a port, and it is reported once assigned
+    ASSERT_NE(this->component.getLocalPort(), 0) << "Wildcard bind never took an ephemeral port";
 
     U8 received[sizeof(this->m_data_storage)] = {};
     FwSizeType size = 0;
@@ -569,8 +572,16 @@ void UnifiedByteStreamDriverTester::test_udp_send_only_messaging() {
     Drv::Test::receive_all(peer, peerDescriptor, received, size);
     Drv::Test::validate_random_buffer(this->m_data_buffer, received);
 
-    // The hold-open loop never reads, so nothing should have come back up the recv port
-    ASSERT_from_recv_SIZE(0);
+    // Reply to the source of that datagram, which is the driver's ephemeral port
+    this->m_received = false;
+    {
+        Os::ScopeLock lock(this->m_buffer_lock);
+        this->m_data_buffer.setSize(sizeof(this->m_data_storage));
+        (void)Drv::Test::fill_random_buffer(this->m_data_buffer);
+        ASSERT_EQ(peer.send(peerDescriptor, this->m_data_buffer.getData(), this->m_data_buffer.getSize()),
+                  Drv::SOCK_SUCCESS);
+    }
+    ASSERT_TRUE(this->wait_on_receive(WAIT_ITERATIONS)) << "Driver never received the peer's reply";
 
     this->component.stop();
     ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);

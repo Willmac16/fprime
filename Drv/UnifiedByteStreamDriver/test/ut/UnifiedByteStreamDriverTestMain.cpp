@@ -24,9 +24,9 @@ TEST(Configuration, TcpBothEndpointsRejected) {
     tester.test_tcp_both_endpoints_rejected();
 }
 
-TEST(Configuration, TcpNoEndpointRejected) {
+TEST(Configuration, TcpWildcardListen) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_no_endpoint_rejected();
+    tester.test_tcp_wildcard_listen();
 }
 
 TEST(Configuration, UdpBidirectional) {
@@ -39,14 +39,14 @@ TEST(Configuration, UdpReceiveOnly) {
     tester.test_udp_receive_only_configuration();
 }
 
-TEST(Configuration, UdpSendOnly) {
+TEST(Configuration, UdpRemoteOnly) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_udp_send_only_configuration();
+    tester.test_udp_remote_only_configuration();
 }
 
-TEST(Configuration, UdpNoEndpointRejected) {
+TEST(Configuration, UdpWildcardBind) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_udp_no_endpoint_rejected();
+    tester.test_udp_wildcard_bind();
 }
 
 TEST(Configuration, Serial) {
@@ -99,14 +99,14 @@ TEST(Configuration, WildcardLocalPortIsSet) {
     tester.test_wildcard_local_port_is_set();
 }
 
-TEST(Configuration, TcpWildcardRemotePortRejected) {
+TEST(Configuration, IncompleteRemoteRejected) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_wildcard_remote_port_rejected();
+    tester.test_incomplete_remote_rejected();
 }
 
-TEST(Configuration, UdpReplyToSenderNeedsLocal) {
+TEST(Configuration, RemotePortWithoutAddressRejected) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_udp_reply_to_sender_needs_local();
+    tester.test_remote_port_without_address_rejected();
 }
 
 TEST(Nominal, EphemeralPortReported) {
@@ -134,9 +134,9 @@ TEST(Nominal, SerialMessaging) {
     tester.test_serial_messaging();
 }
 
-TEST(Nominal, UdpSendOnlyMessaging) {
+TEST(Nominal, UdpRemoteOnlyMessaging) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_udp_send_only_messaging();
+    tester.test_udp_remote_only_messaging();
 }
 
 TEST(Nominal, BufferDeallocation) {

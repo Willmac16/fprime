@@ -30,21 +30,22 @@ namespace Drv {
  * \brief a byte stream driver whose transport is chosen by parameters
  *
  * Covers what Drv::TcpClient, Drv::TcpServer, Drv::Udp and Drv::LinuxUartDriver cover
- * individually. TRANSPORT picks the transport; an optional local endpoint, an optional
- * remote endpoint and an optional serial device pick the direction. Zero is the wildcard
- * in each endpoint field - 0.0.0.0 binds every interface, a zero local port takes an
- * ephemeral one, a zero remote port puts UDP in reply-to-last-sender mode - and an
- * entirely zero endpoint is unset.
+ * individually. TRANSPORT picks the transport, the remote endpoint picks the direction, and
+ * a serial device names the line.
  *
- * | TRANSPORT | local | remote | behavior                                      |
- * |-----------|-------|--------|-----------------------------------------------|
- * | TCP       | set   | unset  | listens on the local endpoint                 |
- * | TCP       | unset | set    | connects to the remote endpoint               |
- * | TCP       | set   | set    | rejected: nothing both binds and connects     |
- * | UDP       | set   | unset  | bound locally, replies to the last sender     |
- * | UDP       | unset | set    | send-only to the remote endpoint              |
- * | UDP       | set   | set    | bound locally, sending to the remote endpoint |
- * | SERIAL    | -     | -      | serial device; IP parameters warn, unused     |
+ * Zero carries the meaning the transports already give it, which differs by the endpoint's
+ * role. The local endpoint is bound, so 0.0.0.0 binds every interface and a zero port takes
+ * an ephemeral one; an entirely zero local endpoint is therefore a wildcard bind, not a
+ * missing one. The remote endpoint is a destination, so an entirely zero one is no
+ * destination at all, and one that is only partly zero is rejected.
+ *
+ * | TRANSPORT | remote        | behavior                                            |
+ * |-----------|---------------|-----------------------------------------------------|
+ * | TCP       | reachable     | connects to it; a local endpoint asked for conflicts |
+ * | TCP       | none          | listens on the local endpoint                       |
+ * | UDP       | reachable     | binds the local endpoint and sends to the remote    |
+ * | UDP       | none          | binds the local endpoint, replies to the last sender |
+ * | SERIAL    | -             | serial device; IP parameters warn, unused           |
  *
  * A combination that cannot be served emits UnsupportedConfiguration and leaves the driver
  * unconfigured rather than half-configured. Parameters that do not apply to the selected
@@ -91,6 +92,10 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     ByteStreamTransport getTransport() const;
 
     //! \brief local port the transport is bound to, 0 when it binds none or is not open
+    //!
+    //! A TCP client and a serial line bind no port of their own. A UDP link and a TCP
+    //! listener report the port they were given, which for a zero port is the ephemeral one
+    //! the system assigned once the transport opened.
     U16 getLocalPort();
 
   protected:
@@ -104,8 +109,8 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     //! \brief read loop adapted to the configuration
     //!
-    //! A TCP listener brings its listening socket up first and tears it down at the end. A
-    //! send-only transport has nothing to read, so it holds the transport open instead.
+    //! A TCP listener brings its listening socket up first and tears it down at the end.
+    //! Every other configuration reads through the helper's loop unchanged.
     void readLoop() override;
 
     void parametersLoaded() override;
@@ -132,14 +137,30 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
         U32 sendTimeoutSeconds = 0;
         U32 sendTimeoutMicroseconds = 0;
 
-        //! \brief an endpoint is unset only when it is wildcard throughout
-        static bool isSet(const IpEndpoint& endpoint) {
+        //! \brief whether an endpoint's address is anything other than 0.0.0.0
+        static bool hasAddress(const IpEndpoint& endpoint) {
             const IpEndpoint::Type_of_address& octets = endpoint.get_address();
-            return (endpoint.get_port() != 0) || (octets[0] != 0) || (octets[1] != 0) || (octets[2] != 0) ||
-                   (octets[3] != 0);
+            return (octets[0] != 0) || (octets[1] != 0) || (octets[2] != 0) || (octets[3] != 0);
         }
-        bool hasLocal() const { return Parameters::isSet(this->localEndpoint); }
-        bool hasRemote() const { return Parameters::isSet(this->remoteEndpoint); }
+
+        //! \brief whether a local endpoint asks for anything beyond the wildcard bind
+        //!
+        //! The local endpoint is always bound, so this does not decide whether to use it.
+        //! It only distinguishes a bind that was asked for from the wildcard default.
+        bool localRequested() const {
+            return Parameters::hasAddress(this->localEndpoint) || (this->localEndpoint.get_port() != 0);
+        }
+
+        //! \brief whether a destination was supplied at all
+        bool hasRemote() const {
+            return Parameters::hasAddress(this->remoteEndpoint) || (this->remoteEndpoint.get_port() != 0);
+        }
+
+        //! \brief whether the destination supplied is one a transport could reach
+        bool remoteReachable() const {
+            return Parameters::hasAddress(this->remoteEndpoint) && (this->remoteEndpoint.get_port() != 0);
+        }
+
         bool hasSerial() const { return this->serialDevice.length() > 0; }
     };
 
@@ -163,9 +184,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! up as the port the system assigned rather than as 0.
     void buildEndpoint();
 
-    //! \brief hold a send-only transport open without reading
-    void holdOpenLoop();
-
     SocketIpStatus startupServer();
     void terminateServer();
 
@@ -179,7 +197,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     bool m_listening = false;  //!< whether a TCP transport listens rather than connects
     Fw::String m_endpoint;     //!< endpoint description reported in events
     FwSizeType m_allocationSize = 0;
-    bool m_receiveEnabled = false;  //!< whether the configuration has a receive direction
     bool m_configured = false;
     bool m_started = false;
 

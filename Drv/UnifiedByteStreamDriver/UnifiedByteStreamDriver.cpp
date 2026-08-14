@@ -107,9 +107,6 @@ ByteStreamTransport UnifiedByteStreamDriver::configure() {
     if (this->m_transport != ByteStreamTransport::NONE) {
         this->buildEndpoint();
         this->log_ACTIVITY_HI_ConfigurationApplied(this->m_transport, this->m_endpoint);
-    } else {
-        // A rejected configuration must not leave a receive direction armed
-        this->m_receiveEnabled = false;
     }
     return this->m_transport;
 }
@@ -118,22 +115,21 @@ ByteStreamTransport UnifiedByteStreamDriver::configureTcp(const Parameters& para
     if (parameters.hasSerial()) {
         this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::SERIAL, parameters.transport);
     }
-    // A TCP endpoint either listens or connects, never both. Picking one for the operator
-    // would silently drop half of what they asked for.
-    if (parameters.hasLocal() && parameters.hasRemote()) {
-        return this->reject(parameters.transport, ByteStreamConfigError::TCP_LOCAL_AND_REMOTE);
-    }
-    if ((not parameters.hasLocal()) && (not parameters.hasRemote())) {
-        return this->reject(parameters.transport, ByteStreamConfigError::NO_ENDPOINT);
-    }
-
-    // A wildcard port is meaningful for a listener but there is nothing to connect to
-    if (parameters.hasRemote() && (parameters.remoteEndpoint.get_port() == 0)) {
-        return this->reject(parameters.transport, ByteStreamConfigError::MISSING_REMOTE_PORT);
+    // The remote endpoint decides the direction: a destination to reach means connect to it,
+    // no destination means listen on the local endpoint instead
+    this->m_listening = not parameters.hasRemote();
+    if (not this->m_listening) {
+        // A connecting socket binds to whatever local endpoint the system hands it, so a
+        // local endpoint asked for alongside a remote one could not be honored
+        if (parameters.localRequested()) {
+            return this->reject(parameters.transport, ByteStreamConfigError::TCP_LOCAL_AND_REMOTE);
+        }
+        if (not parameters.remoteReachable()) {
+            return this->reject(parameters.transport, ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
+        }
     }
 
     Fw::String address;
-    this->m_listening = parameters.hasLocal();
     const IpEndpoint& endpoint = this->m_listening ? parameters.localEndpoint : parameters.remoteEndpoint;
     UnifiedByteStreamDriver::formatAddress(endpoint, address);
 
@@ -142,7 +138,6 @@ ByteStreamTransport UnifiedByteStreamDriver::configureTcp(const Parameters& para
     const SocketIpStatus status = socket.configure(address.toChar(), endpoint.get_port(), parameters.sendTimeoutSeconds,
                                                    parameters.sendTimeoutMicroseconds);
     FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
-    this->m_receiveEnabled = true;
     return ByteStreamTransport::TCP;
 }
 
@@ -150,32 +145,31 @@ ByteStreamTransport UnifiedByteStreamDriver::configureUdp(const Parameters& para
     if (parameters.hasSerial()) {
         this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::SERIAL, parameters.transport);
     }
-    // A remote wildcard port means "reply to the last sender", which needs something bound
-    // locally to hear that sender in the first place
-    const bool replyToSender = parameters.hasRemote() && (parameters.remoteEndpoint.get_port() == 0);
-    if ((not parameters.hasLocal()) && ((not parameters.hasRemote()) || replyToSender)) {
-        return this->reject(parameters.transport, ByteStreamConfigError::NO_ENDPOINT);
+    if (parameters.hasRemote() && (not parameters.remoteReachable())) {
+        return this->reject(parameters.transport, ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
     }
 
+    // The local endpoint is always bound. Its zeros are the wildcards the socket layer
+    // already understands, so an entirely zero one binds every interface on an ephemeral
+    // port, which is what an unbound sender would have been given anyway.
     Fw::String address;
-    if (parameters.hasLocal()) {
-        UnifiedByteStreamDriver::formatAddress(parameters.localEndpoint, address);
-        const SocketIpStatus status = this->m_udp.configureRecv(address.toChar(), parameters.localEndpoint.get_port());
-        FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
-        this->m_receiveEnabled = true;
-    }
+    UnifiedByteStreamDriver::formatAddress(parameters.localEndpoint, address);
+    SocketIpStatus status = this->m_udp.configureRecv(address.toChar(), parameters.localEndpoint.get_port());
+    FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
+
+    // Without a destination the socket replies to whoever sent the last datagram, which the
+    // bind above is what makes possible
     if (parameters.hasRemote()) {
         UnifiedByteStreamDriver::formatAddress(parameters.remoteEndpoint, address);
-        const SocketIpStatus status =
-            this->m_udp.configureSend(address.toChar(), parameters.remoteEndpoint.get_port(),
-                                      parameters.sendTimeoutSeconds, parameters.sendTimeoutMicroseconds);
+        status = this->m_udp.configureSend(address.toChar(), parameters.remoteEndpoint.get_port(),
+                                           parameters.sendTimeoutSeconds, parameters.sendTimeoutMicroseconds);
         FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
     }
     return ByteStreamTransport::UDP;
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::configureSerial(const Parameters& parameters) {
-    if (parameters.hasLocal() || parameters.hasRemote()) {
+    if (parameters.localRequested() || parameters.hasRemote()) {
         this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::IP, parameters.transport);
     }
     if (not parameters.hasSerial()) {
@@ -191,7 +185,6 @@ ByteStreamTransport UnifiedByteStreamDriver::configureSerial(const Parameters& p
         // path this build cannot hold
         return this->reject(parameters.transport, ByteStreamConfigError::NO_SERIAL_DEVICE);
     }
-    this->m_receiveEnabled = true;
     return ByteStreamTransport::SERIAL;
 }
 
@@ -215,14 +208,12 @@ void UnifiedByteStreamDriver::buildEndpoint() {
             }
             break;
         case ByteStreamTransport::UDP:
-            if (parameters.hasLocal() && parameters.hasRemote()) {
+            if (parameters.hasRemote()) {
                 (void)this->m_endpoint.format("bind %s:%hu send %s:%hu", local.toChar(), localPort, remote.toChar(),
                                               remotePort);
-            } else if (parameters.hasLocal()) {
-                // Without a remote endpoint, UDP replies to whoever sent the last datagram
-                (void)this->m_endpoint.format("bind %s:%hu", local.toChar(), localPort);
             } else {
-                (void)this->m_endpoint.format("send %s:%hu", remote.toChar(), remotePort);
+                // Without a destination, UDP replies to whoever sent the last datagram
+                (void)this->m_endpoint.format("bind %s:%hu", local.toChar(), localPort);
             }
             break;
         case ByteStreamTransport::SERIAL:
@@ -295,7 +286,8 @@ U16 UnifiedByteStreamDriver::getLocalPort() {
             port = this->m_listening ? this->m_tcpServer.getListenPort() : static_cast<U16>(0);
             break;
         case ByteStreamTransport::UDP:
-            port = this->m_receiveEnabled ? this->m_udp.getRecvPort() : static_cast<U16>(0);
+            // The local endpoint is always bound, so there is always a port to report
+            port = this->m_udp.getRecvPort();
             break;
         default:
             port = 0;  // A serial line has no local port to report
@@ -377,22 +369,6 @@ void UnifiedByteStreamDriver::terminateServer() {
     this->m_descriptor.serverFd = -1;
 }
 
-void UnifiedByteStreamDriver::holdOpenLoop() {
-    // A send-only transport has no receive direction to block on, but the connection still
-    // has to be opened, and reopened, for the send path to use
-    // @non-terminating@: runs until the driver is stopped
-    while (this->running()) {
-        if (not this->isOpened()) {
-            this->requestReconnect();
-            if (this->waitForReconnect() == SOCK_AUTO_CONNECT_DISABLED) {
-                break;
-            }
-        }
-        (void)Os::Task::delay(SOCKET_RETRY_INTERVAL);
-    }
-    this->close();
-}
-
 void UnifiedByteStreamDriver::readLoop() {
     if ((this->m_transport == ByteStreamTransport::TCP) && this->m_listening) {
         Drv::SocketIpStatus status = Drv::SocketIpStatus::SOCK_NOT_STARTED;
@@ -411,8 +387,6 @@ void UnifiedByteStreamDriver::readLoop() {
             SocketComponentHelper::readLoop();
         }
         this->terminateServer();
-    } else if (not this->m_receiveEnabled) {
-        this->holdOpenLoop();
     } else {
         SocketComponentHelper::readLoop();
     }

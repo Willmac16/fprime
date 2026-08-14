@@ -53,8 +53,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Both endpoints at once is not a TCP configuration this driver can serve
     void test_tcp_both_endpoints_rejected();
 
-    //! TCP with no endpoint at all is rejected
-    void test_tcp_no_endpoint_rejected();
+    //! TCP with nothing supplied listens on every interface with an ephemeral port
+    void test_tcp_wildcard_listen();
 
     //! Both endpoints make a bidirectional UDP link
     void test_udp_bidirectional_configuration();
@@ -62,11 +62,11 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! A local endpoint alone makes a UDP link that replies to its last sender
     void test_udp_receive_only_configuration();
 
-    //! A remote endpoint alone makes a send-only UDP link
-    void test_udp_send_only_configuration();
+    //! A destination alone still binds, on the wildcard endpoint
+    void test_udp_remote_only_configuration();
 
-    //! UDP with no endpoint at all is rejected
-    void test_udp_no_endpoint_rejected();
+    //! UDP with nothing supplied binds every interface on an ephemeral port
+    void test_udp_wildcard_bind();
 
     //! A serial device makes a serial link
     void test_serial_configuration();
@@ -98,11 +98,11 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! A zero local port asks for an ephemeral port, not an unset endpoint
     void test_wildcard_local_port_is_set();
 
-    //! TCP has nothing to connect to on a wildcard remote port
-    void test_tcp_wildcard_remote_port_rejected();
+    //! A remote address with no port is neither a destination nor unset
+    void test_incomplete_remote_rejected();
 
-    //! UDP reply-to-last-sender needs something bound locally to hear the sender
-    void test_udp_reply_to_sender_needs_local();
+    //! A remote port with no address is neither a destination nor unset
+    void test_remote_port_without_address_rejected();
 
     //! An ephemeral port is reported once the system has assigned it
     void test_ephemeral_port_reported();
@@ -124,9 +124,9 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! device so that the test needs no real hardware
     void test_serial_messaging();
 
-    //! A send-only UDP link has no receive direction to block on, so its read task holds the
-    //! transport open for the send path instead of reading from it
-    void test_udp_send_only_messaging();
+    //! A UDP link given only a destination still binds, so the peer's reply reaches it on
+    //! the ephemeral port that bind took
+    void test_udp_remote_only_messaging();
 
     //! Buffers handed back on recvReturnIn are deallocated
     void test_buffer_deallocation();

@@ -8,10 +8,13 @@ module Drv {
 
     @ An IPv4 endpoint: the four address octets plus a port.
     @
-    @ Zero is the wildcard in each field: an address of 0.0.0.0 binds every interface, a
-    @ local port of zero takes an ephemeral port, and a remote port of zero puts UDP in
-    @ reply-to-last-sender mode. An endpoint that is entirely zero is wildcard throughout
-    @ and counts as unset, which is what makes the endpoints optional.
+    @ Zero means what it already means to the transports, which differs by the role the
+    @ endpoint plays. On the local endpoint, which is what gets bound, an address of
+    @ 0.0.0.0 binds every interface and a port of zero takes an ephemeral one, so an
+    @ entirely zero local endpoint binds every interface on an ephemeral port. On the
+    @ remote endpoint, which is a destination, zero addresses nothing, so an entirely zero
+    @ remote endpoint is unconfigured: no destination. A remote endpoint that is only
+    @ partly zero is neither, and is rejected.
     struct IpEndpoint {
         @ Address octets in dotted-quad order, so 127.0.0.1 is [127, 0, 0, 1]
         address: [4] U8
@@ -33,20 +36,21 @@ module Drv {
 
     @ Reason a parameter set was rejected as an unsupported configuration
     enum ByteStreamConfigError {
-        @ TCP was requested with both a local and a remote endpoint, which no transport serves
+        @ TCP was given a remote endpoint to connect to and a local endpoint to bind. A
+        @ connecting socket takes the local endpoint the system gives it, so honoring both
+        @ is not something this driver can do.
         TCP_LOCAL_AND_REMOTE = 0
-        @ No endpoint was supplied that the IP transport could use
-        NO_ENDPOINT = 1
-        @ TCP was given a remote endpoint with a wildcard port, which it cannot connect to
-        MISSING_REMOTE_PORT = 2
+        @ The remote endpoint is only partly zero, so it is neither a destination that can
+        @ be reached nor the entirely zero endpoint that means no destination at all
+        INCOMPLETE_REMOTE_ENDPOINT = 1
         @ SERIAL was requested without a device path
-        NO_SERIAL_DEVICE = 3
+        NO_SERIAL_DEVICE = 2
         @ The receive buffer size is zero
-        INVALID_BUFFER_SIZE = 4
+        INVALID_BUFFER_SIZE = 3
         @ The send timeout microseconds component is 1000000 or greater
-        INVALID_SEND_TIMEOUT = 5
+        INVALID_SEND_TIMEOUT = 4
         @ The requested baud rate is not supported by this platform
-        UNSUPPORTED_BAUD_RATE = 6
+        UNSUPPORTED_BAUD_RATE = 5
     }
 
     @ Group of parameters that does not apply to the selected transport

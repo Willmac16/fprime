@@ -17,12 +17,17 @@
 #include <Drv/UnifiedByteStreamDriver/SerialFlowControlEnumAc.hpp>
 #include <Drv/UnifiedByteStreamDriver/SerialParityEnumAc.hpp>
 #include <Fw/FPrimeBasicTypes.hpp>
+#include <Os/Task.hpp>
 #include <atomic>
 
 namespace Drv {
 
 //! Maximum length of a serial device path, NUL included
 static const FwSizeType SERIAL_STREAM_MAX_DEVICE_SIZE = 128;
+
+//! Wait between empty reads, so a device that returns an immediate zero cannot spin the
+//! read task. Well under the ~1 second an idle line already spends inside a single read.
+static const Fw::TimeInterval SERIAL_STREAM_EMPTY_READ_DELAY = Fw::TimeInterval(0, 10000);
 
 /**
  * \brief a POSIX (termios) serial device behind the Drv::IpSocket interface

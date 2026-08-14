@@ -228,6 +228,14 @@ FwSignedSizeType SerialStream::recvProtocol(const SocketDescriptor& socketDescri
     // @non-terminating@: retries until data arrives, a read fails, or a stop is requested
     do {
         received = static_cast<FwSignedSizeType>(::read(socketDescriptor.fd, data, static_cast<size_t>(size)));
+        if (received == 0) {
+            // VTIME normally paces this loop, but a device at end of file, or one whose
+            // VTIME this platform did not honor, returns an immediate zero every time and
+            // would spin the read task at full tilt. The line is idle either way, so
+            // waiting costs nothing: anything that arrives meanwhile is held by the tty
+            // and returned by the next read.
+            (void)Os::Task::delay(SERIAL_STREAM_EMPTY_READ_DELAY);
+        }
     } while ((received == 0) && (not this->m_stop));
     return received;
 }

@@ -4,13 +4,15 @@ param TRANSPORT: Drv.ByteStreamTransport \
     id 0
 
 @ Local endpoint to bind. An address of 0.0.0.0 binds every interface and a port of zero
-@ takes an ephemeral port; an entirely zero endpoint is unset.
+@ takes an ephemeral port, so the all-zero default binds every interface on an ephemeral
+@ port. Unused by a TCP link that connects out, which binds where the system tells it to.
 param LOCAL_ENDPOINT: Drv.IpEndpoint \
     default { address = 0, $port = 0 } \
     id 1
 
-@ Remote endpoint to talk to. A port of zero puts UDP in reply-to-last-sender mode and is
-@ rejected for TCP; an entirely zero endpoint is unset.
+@ Remote endpoint to talk to, and what picks the direction of an IP link. The all-zero
+@ default is no destination: TCP listens on the local endpoint and UDP replies to whoever
+@ sent it the last datagram. A partly zero endpoint is neither and is rejected.
 param REMOTE_ENDPOINT: Drv.IpEndpoint \
     default { address = 0, $port = 0 } \
     id 2
