@@ -2,15 +2,11 @@ module Drv {
 
     @ A byte stream driver whose transport is selected entirely by parameters.
     @
-    @ A single instance of this component replaces a deployment-time choice between
-    @ Drv.TcpClient, Drv.TcpServer, Drv.Udp and Drv.LinuxUartDriver. The transport is
-    @ picked with the TRANSPORT parameter, and the endpoints are supplied as an optional
-    @ local endpoint, an optional remote endpoint, and an optional serial device. An
-    @ endpoint is unset when its port is zero. Combinations that the underlying transports
-    @ cannot serve are rejected with a warning event and leave the driver disabled rather
-    @ than half-configured.
+    @ Replaces a deployment-time choice between Drv.TcpClient, Drv.TcpServer, Drv.Udp and
+    @ Drv.LinuxUartDriver. TRANSPORT picks the transport; an optional local endpoint, an
+    @ optional remote endpoint and an optional serial device pick the direction. An
+    @ endpoint is unset when its port is zero.
     @
-    @ Supported combinations:
     @ | TRANSPORT | local | remote | behavior                                    |
     @ |-----------|-------|--------|---------------------------------------------|
     @ | TCP       | set   | unset  | listens on the local endpoint               |
@@ -19,6 +15,8 @@ module Drv {
     @ | UDP       | unset | set    | send-only to the remote endpoint            |
     @ | UDP       | set   | set    | bound locally, sending to the remote        |
     @ | SERIAL    | -     | -      | serial device, IP parameters ignored        |
+    @
+    @ Anything else is rejected with a warning, leaving the driver unconfigured.
     passive component UnifiedByteStreamDriver {
 
         # ----------------------------------------------------------------------
@@ -38,20 +36,12 @@ module Drv {
         sync input port run: Svc.Sched
 
         # ----------------------------------------------------------------------
-        # Parameters
+        # Parameters, events, telemetry
         # ----------------------------------------------------------------------
 
         include "Parameters.fppi"
 
-        # ----------------------------------------------------------------------
-        # Events
-        # ----------------------------------------------------------------------
-
         include "Events.fppi"
-
-        # ----------------------------------------------------------------------
-        # Telemetry
-        # ----------------------------------------------------------------------
 
         include "Telemetry.fppi"
 

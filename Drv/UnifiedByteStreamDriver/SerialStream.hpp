@@ -1,7 +1,7 @@
 // ======================================================================
 // \title  SerialStream.hpp
 // \author fprime
-// \brief  hpp file for the serial adaptation of the Drv::IpSocket stream interface
+// \brief  hpp file for SerialStream, a serial device behind the IpSocket interface
 //
 // \copyright
 // Copyright 2009-2025, by the California Institute of Technology.
@@ -21,115 +21,73 @@
 
 namespace Drv {
 
-//! Maximum length of a serial device path handled by this class, NUL included
+//! Maximum length of a serial device path, NUL included
 static const FwSizeType SERIAL_STREAM_MAX_DEVICE_SIZE = 128;
 
 /**
- * \brief adapts a POSIX (termios) serial device to the Drv::IpSocket stream interface
+ * \brief a POSIX (termios) serial device behind the Drv::IpSocket interface
  *
- * Drv::SocketComponentHelper drives a read task, a reconnect task and the open/close
- * lifecycle of anything that presents the Drv::IpSocket interface. That interface is
- * really a byte-stream endpoint interface: `openProtocol`, `sendProtocol`, `recvProtocol`
- * plus close/shutdown. Implementing it for a serial device lets a single component drive
- * TCP, UDP and serial through exactly the same machinery, at the cost of reusing the
- * Drv::SocketIpStatus enumeration for non-socket errors:
+ * Drv::IpSocket is really a byte-stream endpoint interface: openProtocol, sendProtocol,
+ * recvProtocol, close and shutdown. Implementing it for a serial device lets
+ * Drv::SocketComponentHelper drive TCP, UDP and serial with one read loop. The cost is
+ * that Drv::SocketIpStatus carries non-socket errors here:
  *
- * | condition                    | reported status                     |
- * |------------------------------|-------------------------------------|
- * | `::open` of the device failed | SOCK_FAILED_TO_GET_SOCKET          |
- * | a termios call failed         | SOCK_FAILED_TO_SET_SOCKET_OPTIONS  |
- * | the baud rate is unsupported  | SOCK_INVALID_CALL                  |
- *
- * The device is opened in non-canonical mode with 8 data bits and VMIN=0/VTIME=10, so a
- * read that finds no data returns after roughly one second. `recvProtocol` absorbs those
- * empty reads and keeps reading so that idle lines do not produce a stream of empty
- * receives; it returns only once data has arrived or `requestStop` has been called.
+ * | condition                  | reported status                   |
+ * |----------------------------|-----------------------------------|
+ * | `::open` of device failed  | SOCK_FAILED_TO_GET_SOCKET         |
+ * | a termios call failed      | SOCK_FAILED_TO_SET_SOCKET_OPTIONS |
+ * | baud rate unsupported      | SOCK_INVALID_CALL                 |
  */
 class SerialStream final : public IpSocket {
   public:
-    //! \brief construct an unconfigured serial stream
     SerialStream();
-
-    //! \brief destroy the serial stream
     ~SerialStream() override;
 
-    /**
-     * \brief configure the serial device, but do not open it
-     *
-     * \param device: NUL-terminated device path, e.g. "/dev/ttyUSB0"
-     * \param baud: baud rate of the line
-     * \param parity: parity of the line
-     * \param flowControl: flow control of the line
-     * \return SOCK_SUCCESS on success, SOCK_INVALID_CALL when the baud rate is not
-     *         supported by this platform or the device path does not fit
-     */
+    //! \brief configure the device without opening it
+    //! \return SOCK_INVALID_CALL when the baud rate is unsupported or the path does not fit
     SocketIpStatus configureSerial(const char* const device,
                                    const SerialBaudRate baud,
                                    const SerialParity parity,
                                    const SerialFlowControl flowControl);
 
-    /**
-     * \brief IP configuration is not valid for a serial device
-     *
-     * \warning it is a coding error to call this method. Use `configureSerial`.
-     */
+    //! \brief not valid for a serial device: it is a coding error to call this
     SocketIpStatus configure(const char* const ipv4_address,
                              const U16 port,
                              const U32 send_timeout_seconds,
                              const U32 send_timeout_microseconds) override;
 
-    /**
-     * \brief ask a blocked receive to return
-     *
-     * `recvProtocol` blocks until data arrives. Calling this makes the next timed-out read
-     * return instead of looping, which lets the driving read task exit.
-     */
+    //! \brief make a blocked receive return so the read task can exit
     void requestStop();
 
-    /**
-     * \brief check whether this platform supports the given baud rate
-     *
-     * Baud rates above 230400 are optional in termios and are not defined by every
-     * platform. This reports whether the rate can be requested on this build.
-     *
-     * \param baud: baud rate to check
-     * \return true when the rate is supported, false otherwise
-     */
+    //! \brief whether this platform's termios defines the given baud rate
     static bool isBaudRateSupported(const SerialBaudRate baud);
 
-    /**
-     * \brief get the configured device path
-     *
-     * \return NUL-terminated device path, empty when not yet configured
-     */
+    //! \brief configured device path, empty until configureSerial succeeds
     const char* getDevice() const;
 
   protected:
-    //! \brief open and configure the serial device
     SocketIpStatus openProtocol(SocketDescriptor& socketDescriptor) override;
 
-    //! \brief write to the serial device
     FwSignedSizeType sendProtocol(const SocketDescriptor& socketDescriptor,
                                   const U8* const data,
                                   const FwSizeType size) override;
 
-    //! \brief read from the serial device, absorbing empty reads
+    //! \brief read, absorbing the empty reads an idle line produces
     FwSignedSizeType recvProtocol(const SocketDescriptor& socketDescriptor,
                                   U8* const data,
                                   const FwSizeType size) override;
 
-    //! \brief an empty read on a serial line means "no data yet", not a disconnect
+    //! \brief an empty read means a quiet line, not a closed one
     SocketIpStatus handleZeroReturn() override;
 
   private:
-    //! \brief apply the configured line settings to an open file descriptor
     SocketIpStatus applyLineSettings(const int fd) const;
 
-    char m_device[SERIAL_STREAM_MAX_DEVICE_SIZE] = {};               //!< device path
-    SerialBaudRate m_baud = SerialBaudRate::BAUD_115200;             //!< baud rate of the line
-    SerialParity m_parity = SerialParity::PARITY_NONE;               //!< parity of the line
-    SerialFlowControl m_flowControl = SerialFlowControl::FLOW_NONE;  //!< flow control of the line
-    std::atomic<bool> m_stop{false};                                 //!< set to break out of a blocked receive
+    char m_device[SERIAL_STREAM_MAX_DEVICE_SIZE] = {};
+    SerialBaudRate m_baud = SerialBaudRate::BAUD_115200;
+    SerialParity m_parity = SerialParity::PARITY_NONE;
+    SerialFlowControl m_flowControl = SerialFlowControl::FLOW_NONE;
+    std::atomic<bool> m_stop{false};  //!< set to break out of a blocked receive
 };
 
 }  // namespace Drv

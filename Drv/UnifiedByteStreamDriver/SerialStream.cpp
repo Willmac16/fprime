@@ -1,7 +1,7 @@
 // ======================================================================
 // \title  SerialStream.cpp
 // \author fprime
-// \brief  cpp file for the serial adaptation of the Drv::IpSocket stream interface
+// \brief  cpp file for SerialStream, a serial device behind the IpSocket interface
 //
 // \copyright
 // Copyright 2009-2025, by the California Institute of Technology.
@@ -10,7 +10,7 @@
 //
 // ======================================================================
 
-#include <Drv/UnifiedByteStreamDriver/SerialStream.hpp>
+#include "SerialStream.hpp"
 #include <Fw/Types/Assert.hpp>
 #include <Fw/Types/StringUtils.hpp>
 
@@ -25,9 +25,8 @@ namespace {
 
 //! \brief map a baud rate to its termios speed constant
 //!
-//! Rates above 230400 are optional in termios, so each of those cases only exists when the
-//! platform defines the matching constant. Unmapped rates fall through to the default and
-//! are reported as unsupported.
+//! Rates above 230400 are optional in termios, so those cases only exist where the
+//! platform defines the constant. Unmapped rates fall through to unsupported.
 bool baudToSpeed(const SerialBaudRate baud, speed_t& speed) {
     bool supported = true;
     switch (baud.e) {
@@ -154,21 +153,19 @@ SocketIpStatus SerialStream::applyLineSettings(const int fd) const {
             settings.c_cflag |= static_cast<tcflag_t>(CRTSCTS);
             break;
 #else
-            // This platform's termios has no RTS/CTS support to turn on
-            return SOCK_INVALID_CALL;
+            return SOCK_INVALID_CALL;  // No RTS/CTS support on this platform to turn on
 #endif
         default:
             return SOCK_INVALID_CALL;
     }
 
-    // Raw input and output: no canonical processing, no echo, no output translation. Input
-    // parity checking is only meaningful when a parity bit is actually being generated.
+    // Raw in and out. Input parity checking only matters when a parity bit is generated.
     settings.c_oflag = 0;
     settings.c_lflag = 0;
     settings.c_iflag = (this->m_parity == SerialParity::PARITY_NONE) ? 0 : static_cast<tcflag_t>(INPCK);
 
-    // MIN=0 with TIME=10 makes a read with no data available return 0 after ~1 second,
-    // which keeps the reader responsive to stop requests. See recvProtocol.
+    // MIN=0 with TIME=10 makes a read with no data return 0 after ~1 second, which keeps
+    // the reader responsive to stop requests. See recvProtocol.
     settings.c_cc[VMIN] = 0;
     settings.c_cc[VTIME] = 10;
 
@@ -178,10 +175,7 @@ SocketIpStatus SerialStream::applyLineSettings(const int fd) const {
     if (::cfsetospeed(&settings, speed) != 0) {
         return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
     }
-
-    // Drop anything the line buffered before this configuration took effect
     (void)::tcflush(fd, TCIFLUSH);
-
     if (::tcsetattr(fd, TCSANOW, &settings) == -1) {
         return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
     }
@@ -192,8 +186,7 @@ SocketIpStatus SerialStream::openProtocol(SocketDescriptor& socketDescriptor) {
     if (this->m_device[0] == '\0') {
         return SOCK_INVALID_CALL;  // configureSerial was never called
     }
-    // O_NOCTTY keeps this process from adopting the device as its controlling terminal,
-    // which would route terminal signals at it.
+    // O_NOCTTY keeps this process from adopting the device as its controlling terminal
     const int fd = ::open(this->m_device, O_RDWR | O_NOCTTY);
     if (fd == -1) {
         return SOCK_FAILED_TO_GET_SOCKET;
@@ -222,15 +215,12 @@ FwSignedSizeType SerialStream::recvProtocol(const SocketDescriptor& socketDescri
     FW_ASSERT(socketDescriptor.fd >= 0, static_cast<FwAssertArgType>(socketDescriptor.fd));
     FW_ASSERT(data != nullptr);
     FW_ASSERT_NO_OVERFLOW(size, size_t);
-    // A zero-size request can never make progress, so report it as an empty read rather
-    // than spinning on it below
     if (size == 0) {
-        return 0;
+        return 0;  // A zero-size request cannot make progress, so do not spin on it
     }
     FwSignedSizeType received = 0;
-    // VTIME makes an idle line return 0 roughly once a second. Absorb those empty reads so
-    // that an idle line does not push a stream of empty receives at the rest of the system,
-    // while still noticing a stop request between attempts.
+    // VTIME makes an idle line return 0 about once a second. Absorb those so an idle line
+    // does not push empty receives at the rest of the system, while still noticing a stop.
     // @non-terminating@: retries until data arrives, a read fails, or a stop is requested
     do {
         received = static_cast<FwSignedSizeType>(::read(socketDescriptor.fd, data, static_cast<size_t>(size)));
@@ -239,8 +229,7 @@ FwSignedSizeType SerialStream::recvProtocol(const SocketDescriptor& socketDescri
 }
 
 SocketIpStatus SerialStream::handleZeroReturn() {
-    // An empty read on a serial line is a quiet line, not a closed one. It only reaches
-    // here once a stop has been requested, and no-data keeps the reader from logging a
+    // Only reached once a stop was requested. No-data keeps the reader from logging a
     // spurious failure on the way out.
     return SOCK_NO_DATA_AVAILABLE;
 }

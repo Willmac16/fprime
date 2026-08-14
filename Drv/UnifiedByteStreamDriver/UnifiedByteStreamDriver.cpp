@@ -10,7 +10,7 @@
 //
 // ======================================================================
 
-#include <Drv/UnifiedByteStreamDriver/UnifiedByteStreamDriver.hpp>
+#include "UnifiedByteStreamDriver.hpp"
 #include <Fw/Logger/Logger.hpp>
 #include <Fw/Types/Assert.hpp>
 #include <config/IpCfg.hpp>
