@@ -213,9 +213,9 @@ ByteStreamTransport UnifiedByteStreamDriver::configureTcpClient() {
 ByteStreamTransport UnifiedByteStreamDriver::configureTcpServer() {
     Fw::String address;
     UnifiedByteStreamDriver::formatAddress(this->m_config.localEndpoint, address);
-    const SocketIpStatus status = this->m_tcpServer.configure(
-        address.toChar(), this->m_config.localEndpoint.get_port(), this->m_config.sendTimeout.get_seconds(),
-        this->m_config.sendTimeout.get_microseconds());
+    const SocketIpStatus status = this->m_tcpServer.configure(address.toChar(), this->m_config.localEndpoint.get_port(),
+                                                              this->m_config.sendTimeout.get_seconds(),
+                                                              this->m_config.sendTimeout.get_microseconds());
     if (status != SOCK_SUCCESS) {
         return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
     }
@@ -366,9 +366,9 @@ void UnifiedByteStreamDriver::start(const FwTaskPriorityType priority,
     {
         Os::ScopeLock lock(this->m_config.lock);
         FW_ASSERT(not this->m_config.started);  // It is a coding error to start the driver twice
-        const ByteStreamTransport transport =
-            (this->m_config.reconfigurePending || (not this->m_config.resolved)) ? this->applyConfiguration()
-                                                                                 : this->m_config.transport;
+        const ByteStreamTransport transport = (this->m_config.reconfigurePending || (not this->m_config.resolved))
+                                                  ? this->applyConfiguration()
+                                                  : this->m_config.transport;
         if (transport == ByteStreamTransport::NONE) {
             return;  // Nothing to run: the rejection has already been reported
         }
