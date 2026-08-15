@@ -643,13 +643,14 @@ void UnifiedByteStreamDriverTester::test_failed_allocation_returns_buffer() {
     ASSERT_EQ(this->m_outstanding_buffers.load(), 0) << "Allocation leaked";
 }
 
-void UnifiedByteStreamDriverTester::test_repeated_failure_rate_limited() {
+void UnifiedByteStreamDriverTester::test_repeated_failure_throttled() {
     this->setParameters(ByteStreamTransport::UDP, loopback(50016), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
 
     // An allocator that stays empty fails every read the task attempts, which is exactly the
-    // repetition a count-based throttle would answer by going quiet for good. Time is what
-    // limits these, so the reports that follow inside the same window are the ones dropped.
+    // repetition a plain count throttle would answer by going quiet for good. The event
+    // throttles on a time window instead, so the reports inside that window are dropped and
+    // the window is what lets reporting resume.
     this->m_starve_allocator = true;
     for (U32 i = 0; i < 5; i++) {
         const Fw::Buffer buffer = this->component.getBuffer();

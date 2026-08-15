@@ -121,8 +121,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! A buffer the allocator could not serve is not passed on, and not leaked
     void test_failed_allocation_returns_buffer();
 
-    //! A failure that repeats is reported once per time window, not once and never again
-    void test_repeated_failure_rate_limited();
+    //! A failure that repeats is reported once per throttle window, not once and never again
+    void test_repeated_failure_throttled();
 
     //! The byte counters are pushed as they change
     void test_byte_counter_telemetry();

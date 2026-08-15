@@ -244,15 +244,15 @@ parameter's own name, so the configuration can be read back without a parameter 
 | `UnsupportedConfiguration` | warning high | Parameters describe a configuration this driver cannot serve |
 | `ConfigurationReloaded` | activity high | A parameter changed and the transport was rebuilt |
 | `PortOpened` | activity high | Transport opened and ready |
-| `NoBuffers` | warning high | No buffer available to receive into, rate limited |
-| `SendError` | warning low | A transmission failed, rate limited |
-| `ReceiveError` | warning low | A reception failed, rate limited |
+| `NoBuffers` | warning high | No buffer available to receive into, throttled |
+| `SendError` | warning low | A transmission failed, throttled |
+| `ReceiveError` | warning low | A reception failed, throttled |
 
 The last three report conditions that persist and so repeat: an allocator that stays empty,
-a link that will not come up. A count-based `throttle` answers that by going quiet for good,
-which loses the report of the next occurrence, so those three go through
-`Utils::RateLimiter` on a time cycle instead — the first report goes out, and the next one
-waits for the window to pass.
+a link that will not come up. A plain `throttle n` answers that by going quiet for good
+after `n` reports, which loses every later occurrence, so those three use FPP's
+`throttle 1 every 5` — one report, then silence until five seconds have passed, then
+reporting resumes on its own with no throttle-clear command needed.
 
 `Drv::Udp` and `Drv::TcpClient` have no events and report failures through `Fw::Logger`.
 This driver events them: a text log is much harder to see from the ground than a proper

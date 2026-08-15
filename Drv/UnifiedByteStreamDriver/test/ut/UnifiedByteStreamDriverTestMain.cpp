@@ -139,9 +139,9 @@ TEST(Nominal, FailedAllocationReturnsBuffer) {
     tester.test_failed_allocation_returns_buffer();
 }
 
-TEST(Nominal, RepeatedFailureRateLimited) {
+TEST(Nominal, RepeatedFailureThrottled) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_repeated_failure_rate_limited();
+    tester.test_repeated_failure_throttled();
 }
 
 TEST(Nominal, ByteCounterTelemetry) {

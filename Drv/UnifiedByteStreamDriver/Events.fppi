@@ -34,24 +34,27 @@ event PortOpened(
     format "Byte stream driver opened {} on {}"
 
 # The three below all report conditions that can repeat for as long as they last - an
-# allocator that stays empty, a link that stays down - so they are rate limited on elapsed
-# time rather than capped at a count that would stop reporting for good.
+# allocator that stays empty, a link that stays down - so they throttle on elapsed time
+# rather than at a count that would stop reporting for good.
 
 @ The driver could not get a buffer to receive into
 event NoBuffers() \
     severity warning high \
-    format "Byte stream driver has no buffer to receive into"
+    format "Byte stream driver has no buffer to receive into" \
+    throttle 1 every 5
 
 @ A transmission failed
 event SendError(
                    error: I32 @< The Drv.SocketIpStatus value returned by the transport
                ) \
     severity warning low \
-    format "Byte stream driver failed to send with status {}"
+    format "Byte stream driver failed to send with status {}" \
+    throttle 1 every 5
 
 @ A reception failed
 event ReceiveError(
                       error: I32 @< The Drv.SocketIpStatus value returned by the transport
                   ) \
     severity warning low \
-    format "Byte stream driver failed to receive with status {}"
+    format "Byte stream driver failed to receive with status {}" \
+    throttle 1 every 5

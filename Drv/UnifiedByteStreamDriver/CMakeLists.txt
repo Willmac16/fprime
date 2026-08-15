@@ -24,7 +24,6 @@ register_fprime_module(
     Drv_ByteStreamDriverModel
     Drv_Ip
     Svc_Interfaces
-    Utils
     Os
 )
 

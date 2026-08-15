@@ -16,7 +16,6 @@
 #include <Fw/Types/String.hpp>
 #include <Os/Mutex.hpp>
 #include <Os/Task.hpp>
-#include <Utils/RateLimiter.hpp>
 #include "SerialStream.hpp"
 
 namespace Drv {
@@ -210,16 +209,12 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     //! Everything that leaves this component downwards, with the lock that guards it.
     //!
-    //! Telemetry and events are written from two threads - the read task counts bytes in
-    //! and reports receive failures, the sender counts bytes out and reports send failures
-    //! - so those writes, and the counters and rate limiters behind them, are serialized.
+    //! Telemetry is written from two threads - the read task counts bytes in, the sender
+    //! counts bytes out - so those writes and the counters behind them are serialized.
     struct Downlink {
         Os::Mutex lock;
         FwSizeType bytesSent = 0;
         FwSizeType bytesReceived = 0;
-        Utils::RateLimiter noBuffers;
-        Utils::RateLimiter sendError;
-        Utils::RateLimiter receiveError;
     };
     mutable Downlink m_downlink;
 

@@ -10,13 +10,6 @@
 
 namespace Drv {
 
-namespace {
-//! Shortest gap between two reports of a condition that can persist, in seconds. An empty
-//! allocator or a link that will not come up repeats for as long as it lasts, so these are
-//! limited on elapsed time rather than capped at a count that would stop reporting for good.
-constexpr U32 EVENT_RATE_LIMIT_SECONDS = 5;
-}  // namespace
-
 // ----------------------------------------------------------------------
 // Construction, initialization, and destruction
 // ----------------------------------------------------------------------
@@ -24,9 +17,6 @@ constexpr U32 EVENT_RATE_LIMIT_SECONDS = 5;
 UnifiedByteStreamDriver::UnifiedByteStreamDriver(const char* const compName)
     : UnifiedByteStreamDriverComponentBase(compName), SocketComponentHelper() {
     this->registerExternalParameters(this);
-    this->m_downlink.noBuffers.setTimeCycle(EVENT_RATE_LIMIT_SECONDS);
-    this->m_downlink.sendError.setTimeCycle(EVENT_RATE_LIMIT_SECONDS);
-    this->m_downlink.receiveError.setTimeCycle(EVENT_RATE_LIMIT_SECONDS);
 }
 
 UnifiedByteStreamDriver::~UnifiedByteStreamDriver() {}
@@ -492,9 +482,7 @@ Fw::Buffer UnifiedByteStreamDriver::getBuffer() {
         }
         {
             Os::ScopeLock lock(this->m_downlink.lock);
-            if (this->m_downlink.noBuffers.trigger(this->getTime())) {
-                this->log_WARNING_HI_NoBuffers();
-            }
+            this->log_WARNING_HI_NoBuffers();
         }
         return Fw::Buffer();
     }
@@ -515,9 +503,7 @@ void UnifiedByteStreamDriver::sendBuffer(Fw::Buffer buffer, SocketIpStatus statu
     } else {
         recvStatus = ByteStreamStatus::OTHER_ERROR;
         Os::ScopeLock lock(this->m_downlink.lock);
-        if (this->m_downlink.receiveError.trigger(this->getTime())) {
-            this->log_WARNING_LO_ReceiveError(static_cast<I32>(status));
-        }
+        this->log_WARNING_LO_ReceiveError(static_cast<I32>(status));
     }
     this->recv_out(0, buffer, recvStatus);
 }
@@ -602,9 +588,7 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
         // Worth reporting: a disabled driver silently swallowing sends is exactly the
         // failure that is hard to see from the ground
         Os::ScopeLock lock(this->m_downlink.lock);
-        if (this->m_downlink.sendError.trigger(this->getTime())) {
-            this->log_WARNING_LO_SendError(static_cast<I32>(SOCK_NOT_STARTED));
-        }
+        this->log_WARNING_LO_SendError(static_cast<I32>(SOCK_NOT_STARTED));
         return ByteStreamStatus::OTHER_ERROR;
     }
     const FwSizeType size = fwBuffer.getSize();
@@ -630,9 +614,7 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
     }
     if (returnStatus != ByteStreamStatus::OP_OK) {
         Os::ScopeLock lock(this->m_downlink.lock);
-        if (this->m_downlink.sendError.trigger(this->getTime())) {
-            this->log_WARNING_LO_SendError(static_cast<I32>(status));
-        }
+        this->log_WARNING_LO_SendError(static_cast<I32>(status));
     }
     return returnStatus;
 }
