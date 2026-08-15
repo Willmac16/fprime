@@ -19,11 +19,6 @@ TEST(Configuration, TcpClientMissingRemoteRejected) {
     tester.test_tcp_client_missing_remote_rejected();
 }
 
-TEST(Configuration, TcpClientLocalBindAccepted) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_client_local_bind_accepted();
-}
-
 TEST(Configuration, TcpServer) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_tcp_server_configuration();
@@ -119,11 +114,6 @@ TEST(Nominal, TcpClientMessaging) {
     tester.test_tcp_client_messaging();
 }
 
-TEST(Nominal, TcpClientBindsLocalPort) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_client_binds_local_port();
-}
-
 TEST(Nominal, TcpServerMessaging) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_tcp_server_messaging();
@@ -147,6 +137,11 @@ TEST(Nominal, BufferDeallocation) {
 TEST(Nominal, FailedAllocationReturnsBuffer) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_failed_allocation_returns_buffer();
+}
+
+TEST(Nominal, RepeatedFailureRateLimited) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_repeated_failure_rate_limited();
 }
 
 TEST(Nominal, ByteCounterTelemetry) {

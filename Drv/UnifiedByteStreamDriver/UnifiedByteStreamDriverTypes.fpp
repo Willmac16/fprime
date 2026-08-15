@@ -92,4 +92,22 @@ module Drv {
         FLOW_SOFTWARE = 2
     }
 
+    @ Everything needed to open a serial line
+    struct SerialConfig {
+        @ Device path, e.g. "/dev/ttyUSB0". Required when TRANSPORT is SERIAL.
+        device: string size BYTE_STREAM_DEVICE_STRING_SIZE
+        baudRate: SerialBaudRate
+        parity: SerialParity
+        flowControl: SerialFlowControl
+        @ How long a read waits on an idle line before returning empty, in tenths of a
+        @ second (termios VTIME). This is what bounds how long stopping a serial link takes.
+        readTimeout: U8
+    } default {
+        device = ""
+        baudRate = SerialBaudRate.BAUD_115200
+        parity = SerialParity.PARITY_NONE
+        flowControl = SerialFlowControl.FLOW_NONE
+        readTimeout = 10
+    }
+
 }

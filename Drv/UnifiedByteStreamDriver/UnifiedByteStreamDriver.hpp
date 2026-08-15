@@ -8,6 +8,7 @@
 
 #include <Drv/Ip/IpSocket.hpp>
 #include <Drv/Ip/SocketComponentHelper.hpp>
+#include <Drv/Ip/TcpClientSocket.hpp>
 #include <Drv/Ip/TcpServerSocket.hpp>
 #include <Drv/Ip/UdpSocket.hpp>
 #include <Drv/UnifiedByteStreamDriver/UnifiedByteStreamDriverComponentAc.hpp>
@@ -15,8 +16,7 @@
 #include <Fw/Types/String.hpp>
 #include <Os/Mutex.hpp>
 #include <Os/Task.hpp>
-#include <atomic>
-#include "BindingTcpClientSocket.hpp"
+#include <Utils/RateLimiter.hpp>
 #include "SerialStream.hpp"
 
 namespace Drv {
@@ -29,10 +29,10 @@ namespace Drv {
  *
  * | TRANSPORT   | uses                                                             |
  * |-------------|------------------------------------------------------------------|
- * | TCP_CLIENT  | binds LOCAL_ENDPOINT if asked for, connects to REMOTE_ENDPOINT   |
+ * | TCP_CLIENT  | connects to REMOTE_ENDPOINT                                      |
  * | TCP_SERVER  | listens on LOCAL_ENDPOINT                                        |
  * | UDP         | binds LOCAL_ENDPOINT, sends to REMOTE_ENDPOINT when there is one  |
- * | SERIAL      | opens SERIAL_DEVICE                                              |
+ * | SERIAL      | opens SERIAL_CONFIG.device                                       |
  *
  * Zero means what it already means to the transports. A local endpoint is bound, so
  * 0.0.0.0 binds every interface and a zero port takes an ephemeral one. A remote endpoint
@@ -65,17 +65,12 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
                           const IpEndpoint& remoteEndpoint);
 
     //! \brief set the serial line settings directly
-    void setSerialConfiguration(const Fw::StringBase& device,
-                                const SerialBaudRate baudRate,
-                                const SerialParity parity,
-                                const SerialFlowControl flowControl,
-                                const U8 readTimeout);
+    void setSerialConfiguration(const SerialConfig& serialConfig);
 
     //! \brief set the buffer size and send timeout directly
     void setBufferConfiguration(const FwSizeType recvBufferSize, const SendTimeout& sendTimeout);
 
     //! \brief resolve the configuration into a transport, without opening it
-    //!
     //!
     //! Called automatically when parameters load and on the first `start`.
     //!
@@ -145,7 +140,7 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     void recvReturnIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) override;
 
-    //! \brief resolve the configuration; call with m_configLock held
+    //! \brief resolve the configuration; call with the configuration lock held
     ByteStreamTransport applyConfiguration();
 
     //! \return NONE when the combination was rejected
@@ -179,47 +174,57 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     SocketIpStatus startupServer();
     void terminateServer();
 
-    BindingTcpClientSocket m_tcpClient;
+    TcpClientSocket m_tcpClient;
     TcpServerSocket m_tcpServer;
     UdpSocket m_udp;
     SerialStream m_serial;
 
-    // Parameter storage. These are the parameters: the autocoded external parameter
-    // delegate reads and writes them, and setConfiguration writes the same fields.
-    ByteStreamTransport m_transportParam = ByteStreamTransport::NONE;
-    IpEndpoint m_localEndpoint;
-    IpEndpoint m_remoteEndpoint;
-    Fw::ParamString m_serialDevice;
-    SerialBaudRate m_serialBaudRate = SerialBaudRate::BAUD_115200;
-    SerialParity m_serialParity = SerialParity::PARITY_NONE;
-    SerialFlowControl m_serialFlowControl = SerialFlowControl::FLOW_NONE;
-    U8 m_serialReadTimeout = 10;
-    FwSizeType m_recvBufferSize = 1024;
-    SendTimeout m_sendTimeout;
+    //! The parameters and everything resolved from them, with the lock that guards them.
+    //!
+    //! The read task reaches this through getSocketHandler, which is where a staged change
+    //! is applied, so every mutation of the sockets happens on one thread at a time.
+    struct Configuration {
+        Os::Mutex lock;
 
-    //! Guards the resolved configuration and the socket objects it configures. The read
-    //! task reaches them through getSocketHandler, which is where a pending change is
-    //! applied, so every mutation happens on one thread at a time.
-    mutable Os::Mutex m_configLock;
+        // The parameters themselves: the autocoded external parameter delegate reads and
+        // writes these, and the setters write the same fields.
+        ByteStreamTransport transportParam = ByteStreamTransport::NONE;
+        IpEndpoint localEndpoint;
+        IpEndpoint remoteEndpoint;
+        SerialConfig serial;
+        FwSizeType recvBufferSize = 1024;
+        SendTimeout sendTimeout;
 
-    //! Telemetry and events leave this component from two threads - the read task counts
-    //! bytes in and reports receive failures, the sender counts bytes out and reports send
-    //! failures - so those writes are serialized against each other.
-    mutable Os::Mutex m_downlinkLock;
-    bool m_reconfigurePending = false;
-    //! Set while parameterUpdated is tearing the link down. The teardown calls reach
-    //! getSocketHandler from the caller's thread, and applying there would be the very
-    //! cross-thread write the hand-off exists to avoid.
-    bool m_suppressApply = false;
+        ByteStreamTransport transport = ByteStreamTransport::NONE;  //!< resolved transport
+        Fw::String endpoint;                                        //!< endpoint description in events
+        FwSizeType allocationSize = 0;
+        bool resolved = false;  //!< whether the parameters have been resolved at least once
+        bool started = false;   //!< whether the read task is running, so a change must be staged
+        bool reconfigurePending = false;
+        //! Set while parameterUpdated is tearing the link down. The teardown calls reach
+        //! getSocketHandler from the caller's thread, and applying there would be the very
+        //! cross-thread write the hand-off exists to avoid.
+        bool suppressApply = false;
+    };
+    mutable Configuration m_config;
 
-    ByteStreamTransport m_transport = ByteStreamTransport::NONE;  //!< transport resolved
-    Fw::String m_endpoint;                                        //!< endpoint description in events
-    FwSizeType m_allocationSize = 0;
-    bool m_configured = false;
-    bool m_started = false;
+    //! Everything that leaves this component downwards, with the lock that guards it.
+    //!
+    //! Telemetry and events are written from two threads - the read task counts bytes in
+    //! and reports receive failures, the sender counts bytes out and reports send failures
+    //! - so those writes, and the counters and rate limiters behind them, are serialized.
+    struct Downlink {
+        Os::Mutex lock;
+        FwSizeType bytesSent = 0;
+        FwSizeType bytesReceived = 0;
+        Utils::RateLimiter noBuffers;
+        Utils::RateLimiter sendError;
+        Utils::RateLimiter receiveError;
+    };
+    mutable Downlink m_downlink;
 
-    std::atomic<FwSizeType> m_bytesSent{0};
-    std::atomic<FwSizeType> m_bytesReceived{0};
+    //! \brief whether the read task is running
+    bool isStarted() const;
 };
 
 }  // namespace Drv

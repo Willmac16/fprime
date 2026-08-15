@@ -43,9 +43,6 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! TCP_CLIENT with no destination has nothing to connect to
     void test_tcp_client_missing_remote_rejected();
 
-    //! TCP_CLIENT may bind a local endpoint of its own before connecting
-    void test_tcp_client_local_bind_accepted();
-
     //! TCP_SERVER listens on the local endpoint
     void test_tcp_server_configuration();
 
@@ -110,9 +107,6 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Data flows both ways over a TCP link that listens
     void test_tcp_server_messaging();
 
-    //! A TCP client asked to bind a local port connects from that port
-    void test_tcp_client_binds_local_port();
-
     //! Data flows both ways over a parameter-configured serial link, using a pty as the
     //! device so that the test needs no real hardware
     void test_serial_messaging();
@@ -126,6 +120,9 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
 
     //! A buffer the allocator could not serve is not passed on, and not leaked
     void test_failed_allocation_returns_buffer();
+
+    //! A failure that repeats is reported once per time window, not once and never again
+    void test_repeated_failure_rate_limited();
 
     //! The byte counters are pushed as they change
     void test_byte_counter_telemetry();
@@ -159,6 +156,9 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
 
     //! An endpoint that is entirely zero
     static IpEndpoint unset();
+
+    //! The serial settings these tests use, on the given device
+    static SerialConfig serial(const char* const device);
 
     //! An arbitrary endpoint
     static IpEndpoint endpoint(const U8 a, const U8 b, const U8 c, const U8 d, const U16 port);

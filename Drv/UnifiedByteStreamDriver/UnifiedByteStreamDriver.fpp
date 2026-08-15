@@ -4,8 +4,8 @@ module Drv {
     @
     @ Replaces a deployment-time choice between Drv.TcpClient, Drv.TcpServer, Drv.Udp and
     @ Drv.LinuxUartDriver. TRANSPORT names the transport outright; LOCAL_ENDPOINT is what
-    @ every IP transport binds, REMOTE_ENDPOINT is where TCP_CLIENT connects and where UDP
-    @ sends, and SERIAL_DEVICE names the line.
+    @ TCP_SERVER and UDP bind, REMOTE_ENDPOINT is where TCP_CLIENT connects and where UDP
+    @ sends, and SERIAL_CONFIG carries the line settings.
     @
     @ The parameters are external, so the same values can be set from a topology in C++ or
     @ by command from the ground without keeping two copies of them.

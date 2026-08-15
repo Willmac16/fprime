@@ -78,12 +78,7 @@ void UnifiedByteStreamDriverTester::setParameters(const ByteStreamTransport tran
     this->paramSet_TRANSPORT(transport, Fw::ParamValid::VALID);
     this->paramSet_LOCAL_ENDPOINT(localEndpoint, Fw::ParamValid::VALID);
     this->paramSet_REMOTE_ENDPOINT(remoteEndpoint, Fw::ParamValid::VALID);
-    Fw::String device(serialDevice);
-    this->paramSet_SERIAL_DEVICE(device, Fw::ParamValid::VALID);
-    this->paramSet_SERIAL_BAUD_RATE(SerialBaudRate::BAUD_115200, Fw::ParamValid::VALID);
-    this->paramSet_SERIAL_PARITY(SerialParity::PARITY_NONE, Fw::ParamValid::VALID);
-    this->paramSet_SERIAL_FLOW_CONTROL(SerialFlowControl::FLOW_NONE, Fw::ParamValid::VALID);
-    this->paramSet_SERIAL_READ_TIMEOUT(TEST_READ_TIMEOUT, Fw::ParamValid::VALID);
+    this->paramSet_SERIAL_CONFIG(UnifiedByteStreamDriverTester::serial(serialDevice), Fw::ParamValid::VALID);
     const FwSizeType bufferSize = sizeof(this->m_data_storage);
     this->paramSet_RECV_BUFFER_SIZE(bufferSize, Fw::ParamValid::VALID);
     SendTimeout timeout;
@@ -92,11 +87,22 @@ void UnifiedByteStreamDriverTester::setParameters(const ByteStreamTransport tran
     this->paramSet_SEND_TIMEOUT(timeout, Fw::ParamValid::VALID);
 }
 
+SerialConfig UnifiedByteStreamDriverTester::serial(const char* const device) {
+    SerialConfig config;
+    config.set_device(Fw::String(device));
+    config.set_baudRate(SerialBaudRate::BAUD_115200);
+    config.set_parity(SerialParity::PARITY_NONE);
+    config.set_flowControl(SerialFlowControl::FLOW_NONE);
+    config.set_readTimeout(TEST_READ_TIMEOUT);
+    return config;
+}
+
 ByteStreamTransport UnifiedByteStreamDriverTester::loadAndConfigure() {
-    // loadParameters pulls every parameter over the prmGet port and then calls
-    // parametersLoaded, which is where the driver resolves its configuration
+    // loadParameters pulls every parameter over the prmGet port, one parameterUpdated call
+    // each, which stage the resolution that configure then does once - the same order
+    // start() puts them in
     this->component.loadParameters();
-    return this->component.getTransport();
+    return this->component.configure();
 }
 
 bool UnifiedByteStreamDriverTester::wait_on_open(bool open, U32 iterations) {
@@ -143,15 +149,6 @@ void UnifiedByteStreamDriverTester::test_tcp_client_missing_remote_rejected() {
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::TCP_CLIENT,
                                            ByteStreamConfigError::MISSING_REMOTE_ENDPOINT);
-}
-
-void UnifiedByteStreamDriverTester::test_tcp_client_local_bind_accepted() {
-    // Binding a source endpoint and then connecting is ordinary TCP, so both endpoints
-    // together is a configuration this driver serves rather than refuses
-    this->setParameters(ByteStreamTransport::TCP_CLIENT, loopback(50002), loopback(50003));
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP_CLIENT);
-    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_CLIENT, "connect 127.0.0.1:50003");
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_server_configuration() {
@@ -254,15 +251,12 @@ void UnifiedByteStreamDriverTester::test_configuration_telemetry() {
 
     // Every parameter reads back as telemetry, so the configuration in force can be seen
     // from the ground without a parameter dump
-    ASSERT_TLM_Transport(0, ByteStreamTransport::UDP);
-    ASSERT_TLM_LocalEndpoint(0, loopback(50011));
-    ASSERT_TLM_RemoteEndpoint(0, loopback(50012));
-    ASSERT_TLM_SerialDevice(0, TEST_DEVICE);
-    ASSERT_TLM_SerialBaudRate(0, SerialBaudRate::BAUD_115200);
-    ASSERT_TLM_SerialParity(0, SerialParity::PARITY_NONE);
-    ASSERT_TLM_SerialFlowControl(0, SerialFlowControl::FLOW_NONE);
-    ASSERT_TLM_SerialReadTimeout(0, TEST_READ_TIMEOUT);
-    ASSERT_TLM_RecvBufferSize(0, sizeof(this->m_data_storage));
+    ASSERT_TLM_ActiveTransport(0, ByteStreamTransport::UDP);
+    ASSERT_TLM_TRANSPORT(0, ByteStreamTransport::UDP);
+    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50011));
+    ASSERT_TLM_REMOTE_ENDPOINT(0, loopback(50012));
+    ASSERT_TLM_SERIAL_CONFIG(0, UnifiedByteStreamDriverTester::serial(TEST_DEVICE));
+    ASSERT_TLM_RECV_BUFFER_SIZE(0, sizeof(this->m_data_storage));
 }
 
 void UnifiedByteStreamDriverTester::test_direct_configuration() {
@@ -278,7 +272,7 @@ void UnifiedByteStreamDriverTester::test_direct_configuration() {
     ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50013");
 
     // And the same values serialize back out, so a param save would save what was set here
-    ASSERT_TLM_LocalEndpoint(0, loopback(50013));
+    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50013));
 }
 
 void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {
@@ -289,7 +283,7 @@ void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {
     // Each set resolves on its own, so the device has to land before the transport that
     // needs it: SERIAL with no device yet is a configuration this driver refuses.
     this->setParameters(ByteStreamTransport::SERIAL, unset(), unset(), TEST_DEVICE);
-    this->paramSend_SERIAL_DEVICE(0, 0);
+    this->paramSend_SERIAL_CONFIG(0, 0);
     this->paramSend_TRANSPORT(0, 0);
     ASSERT_EQ(this->component.getTransport(), ByteStreamTransport::SERIAL);
     ASSERT_EVENTS_ConfigurationReloaded_SIZE(2);
@@ -463,42 +457,6 @@ void UnifiedByteStreamDriverTester::test_tcp_client_messaging() {
     ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
     peer.terminate(peerDescriptor);
     ASSERT_from_ready_SIZE(1);
-}
-
-void UnifiedByteStreamDriverTester::test_tcp_client_binds_local_port() {
-    const U16 serverPort = Drv::Test::get_free_port();
-    ASSERT_NE(serverPort, 0);
-    U16 sourcePort = Drv::Test::get_free_port();
-    for (U32 i = 0; (i < 100) && (sourcePort == serverPort); i++) {
-        sourcePort = Drv::Test::get_free_port();
-    }
-    if (sourcePort == serverPort) {
-        GTEST_SKIP() << "Could not find two free TCP ports";
-    }
-
-    Drv::TcpServerSocket peer;
-    Drv::SocketDescriptor peerDescriptor;
-    ASSERT_EQ(peer.configure(LOOPBACK, serverPort, 0, 100), Drv::SOCK_SUCCESS);
-    ASSERT_EQ(peer.startup(peerDescriptor), Drv::SOCK_SUCCESS);
-
-    // A local endpoint alongside the destination: the client connects from that port
-    this->setParameters(ByteStreamTransport::TCP_CLIENT, loopback(sourcePort), loopback(serverPort));
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP_CLIENT);
-
-    this->component.start();
-    ASSERT_EQ(peer.open(peerDescriptor), Drv::SOCK_SUCCESS);
-    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never connected";
-
-    // Ask the accepted socket where the connection came from
-    struct sockaddr_in source;
-    socklen_t sourceSize = sizeof(source);
-    (void)::memset(&source, 0, sizeof(source));
-    ASSERT_EQ(::getpeername(peerDescriptor.fd, reinterpret_cast<struct sockaddr*>(&source), &sourceSize), 0);
-    ASSERT_EQ(ntohs(source.sin_port), sourcePort) << "Client did not connect from the local endpoint it was given";
-
-    this->component.stop();
-    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
-    peer.terminate(peerDescriptor);
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_server_messaging() {
@@ -681,6 +639,22 @@ void UnifiedByteStreamDriverTester::test_failed_allocation_returns_buffer() {
     // The unusable buffer must have gone back to the allocator rather than been dropped,
     // and the ground has to be able to see that it happened
     ASSERT_from_deallocate_SIZE(1);
+    ASSERT_EVENTS_NoBuffers_SIZE(1);
+    ASSERT_EQ(this->m_outstanding_buffers.load(), 0) << "Allocation leaked";
+}
+
+void UnifiedByteStreamDriverTester::test_repeated_failure_rate_limited() {
+    this->setParameters(ByteStreamTransport::UDP, loopback(50016), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+
+    // An allocator that stays empty fails every read the task attempts, which is exactly the
+    // repetition a count-based throttle would answer by going quiet for good. Time is what
+    // limits these, so the reports that follow inside the same window are the ones dropped.
+    this->m_starve_allocator = true;
+    for (U32 i = 0; i < 5; i++) {
+        const Fw::Buffer buffer = this->component.getBuffer();
+        ASSERT_FALSE(buffer.isValid());
+    }
     ASSERT_EVENTS_NoBuffers_SIZE(1);
     ASSERT_EQ(this->m_outstanding_buffers.load(), 0) << "Allocation leaked";
 }
