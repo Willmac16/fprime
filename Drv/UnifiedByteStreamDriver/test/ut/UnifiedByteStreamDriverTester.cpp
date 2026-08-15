@@ -318,22 +318,13 @@ void UnifiedByteStreamDriverTester::test_parameter_update_while_running() {
     this->paramSet_LOCAL_ENDPOINT(loopback(second), Fw::ParamValid::VALID);
     this->paramSend_LOCAL_ENDPOINT(0, 0);
 
-    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never came back after the change";
-    // Poll rather than assert once: the read task is what applies the staged change
-    U16 moved = 0;
-    for (U32 i = 0; (i < WAIT_ITERATIONS) && (moved != second); i++) {
-        moved = this->component.getLocalPort();
-        if (moved != second) {
-            (void)Os::Task::delay(Fw::TimeInterval(0, 10000));
-        }
-    }
-    ASSERT_EQ(moved, second) << "Parameter change did not move the link";
+    // The tasks came down, the transport was rebuilt and the tasks went back up
+    ASSERT_EVENTS_ConfigurationReloaded_SIZE(1);
+    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never came back on the new port";
+    ASSERT_EQ(this->component.getLocalPort(), second) << "Parameter change did not move the link";
 
     this->component.stop();
     ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
-
-    // The read task logs the reload, so read that history only once it is joined
-    ASSERT_EVENTS_ConfigurationReloaded_SIZE(1);
 }
 
 void UnifiedByteStreamDriverTester::test_ephemeral_port_reported() {

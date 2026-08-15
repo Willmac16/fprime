@@ -116,6 +116,10 @@ void SerialStream::clearStop() {
     this->m_stop = false;
 }
 
+void SerialStream::shutdown(const SocketDescriptor& socketDescriptor) {
+    this->requestStop();
+}
+
 const char* SerialStream::getDevice() const {
     return this->m_device;
 }

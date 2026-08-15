@@ -28,9 +28,10 @@ void SocketComponentHelper::start(const Fw::ConstStringBase& name,
                                   const FwTaskPriorityType priorityReconnect,
                                   const Os::Task::ParamType stackReconnect,
                                   const Os::Task::ParamType cpuAffinityReconnect) {
-    // Reconnect Thread
-    FW_ASSERT(m_reconnectTask.getState() ==
-              Os::Task::State::NOT_STARTED);  // It is a coding error to start this task multiple times
+    // Reconnect Thread. A task that has been started and joined may be started again, which
+    // is what lets a component take its transport down, reconfigure it and bring it back.
+    FW_ASSERT((m_reconnectTask.getState() == Os::Task::State::NOT_STARTED) ||
+              (m_reconnectTask.getState() == Os::Task::State::EXITED));
     this->m_reconnectStop = false;
     Fw::String reconnectName;
     (void)reconnectName.format("%s_reconnect", name.toChar());  // task name may safely truncate
@@ -40,8 +41,7 @@ void SocketComponentHelper::start(const Fw::ConstStringBase& name,
     FW_ASSERT(Os::Task::OP_OK == reconnectStat, static_cast<FwAssertArgType>(reconnectStat));
 
     // Read Thread
-    FW_ASSERT(m_task.getState() ==
-              Os::Task::State::NOT_STARTED);  // It is a coding error to start this task multiple times
+    FW_ASSERT((m_task.getState() == Os::Task::State::NOT_STARTED) || (m_task.getState() == Os::Task::State::EXITED));
     this->m_stop = false;
     // Note: the first step is for the IP socket to open the port
     Os::Task::Arguments arguments(name, SocketComponentHelper::readTask, this, priority, stack, cpuAffinity);

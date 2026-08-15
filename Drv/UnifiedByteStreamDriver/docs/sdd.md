@@ -16,18 +16,15 @@ It reuses the framework's transports — `Drv::TcpServerSocket` and `Drv::UdpSoc
 by `Drv::SocketComponentHelper`, which supplies the read task, the reconnect task and the
 open/close lifecycle.
 
-Two transports are local to this module:
+`Drv::SerialStream` implements `Drv::IpSocket` on top of a POSIX termios device. That
+interface is really a byte-stream endpoint interface, so one read loop serves them all. All
+four transports are held as members, which avoids dynamic allocation.
 
-- `Drv::SerialStream` implements `Drv::IpSocket` on top of a POSIX termios device. That
-  interface is really a byte-stream endpoint interface, so one read loop serves them all.
-- `Drv::BindingTcpClientSocket` is a `Drv::TcpClientSocket` that binds a local endpoint
-  before it connects, which the base class does not do.
-
-All four are held as members, which avoids dynamic allocation.
-
-Nothing outside this directory changes. That is deliberate: the module is meant to drop
-into a project repository without a patch to F´ itself, so where the framework does not do
-what is needed, the module subclasses rather than edits.
+**This branch modifies F´ itself.** It is the counterfactual to the shipped module, which is
+self-contained on purpose. Three framework changes carry the weight: `Drv::IpSocket::shutdown`
+is virtual so a non-socket descriptor can break its reader out its own way,
+`Drv::TcpClientSocket::configureLocal` binds a local endpoint before connecting, and
+`Drv::SocketComponentHelper` allows its tasks to be started again after they are joined.
 
 ### Endpoints
 
@@ -75,19 +72,13 @@ second copy of the values to keep in step — a `param save` saves what C++ set,
 
 ### Changing parameters at run time
 
-A parameter that changes while nothing is running is resolved immediately. A parameter that
-changes while the read task is running is staged and the live connection is dropped: the
-task picks the change up through `getSocketHandler` on its way back round its reconnect
-path, and reopens on the new values. `ConfigurationReloaded` reports it.
+A parameter change stops the read task, rebuilds the configuration and starts it again,
+reporting `ConfigurationReloaded`. That is only possible because the helper on this branch
+can be restarted.
 
-Doing it that way — rather than stopping and restarting the task — matters twice over.
-`Drv::SocketComponentHelper` asserts its tasks have never been started, so it cannot be
-restarted at all. And the configuration and the sockets it configures belong to the read
-task while that task is alive, so applying a change on the commanding thread would be a
-data race; `m_configLock` guards the storage, and the apply happens on the read task.
-
-A change that resolves to nothing does not take a working link down: the rejection is
-reported and the link carries on as it was.
+One lock is still needed. The framework writes external parameter storage before it calls
+`parameterUpdated`, so a set lands while the read task is still running: `m_paramLock`
+guards the storage against that.
 
 ## Usage
 

@@ -165,7 +165,7 @@ class IpSocket {
      *
      * \param socketDescriptor: socket descriptor to shutdown
      */
-    void shutdown(const SocketDescriptor& socketDescriptor);
+    virtual void shutdown(const SocketDescriptor& socketDescriptor);
 
   protected:
     /**

@@ -8,6 +8,7 @@
 
 #include <Drv/Ip/IpSocket.hpp>
 #include <Drv/Ip/SocketComponentHelper.hpp>
+#include <Drv/Ip/TcpClientSocket.hpp>
 #include <Drv/Ip/TcpServerSocket.hpp>
 #include <Drv/Ip/UdpSocket.hpp>
 #include <Drv/UnifiedByteStreamDriver/UnifiedByteStreamDriverComponentAc.hpp>
@@ -16,7 +17,6 @@
 #include <Os/Mutex.hpp>
 #include <Os/Task.hpp>
 #include <atomic>
-#include "BindingTcpClientSocket.hpp"
 #include "SerialStream.hpp"
 
 namespace Drv {
@@ -145,9 +145,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     void recvReturnIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) override;
 
-    //! \brief resolve the configuration; call with m_configLock held
-    ByteStreamTransport applyConfiguration();
-
     //! \return NONE when the combination was rejected
     ByteStreamTransport configureTcpClient();
     ByteStreamTransport configureTcpServer();
@@ -179,7 +176,7 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     SocketIpStatus startupServer();
     void terminateServer();
 
-    BindingTcpClientSocket m_tcpClient;
+    TcpClientSocket m_tcpClient;
     TcpServerSocket m_tcpServer;
     UdpSocket m_udp;
     SerialStream m_serial;
@@ -197,26 +194,25 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     FwSizeType m_recvBufferSize = 1024;
     SendTimeout m_sendTimeout;
 
-    //! Guards the resolved configuration and the socket objects it configures. The read
-    //! task reaches them through getSocketHandler, which is where a pending change is
-    //! applied, so every mutation happens on one thread at a time.
-    mutable Os::Mutex m_configLock;
-
     //! Telemetry and events leave this component from two threads - the read task counts
     //! bytes in and reports receive failures, the sender counts bytes out and reports send
     //! failures - so those writes are serialized against each other.
     mutable Os::Mutex m_downlinkLock;
-    bool m_reconfigurePending = false;
-    //! Set while parameterUpdated is tearing the link down. The teardown calls reach
-    //! getSocketHandler from the caller's thread, and applying there would be the very
-    //! cross-thread write the hand-off exists to avoid.
-    bool m_suppressApply = false;
+
+    //! Guards the parameter storage. The framework writes it before it calls
+    //! parameterUpdated, so a set lands while the read task is still running.
+    mutable Os::Mutex m_paramLock;
 
     ByteStreamTransport m_transport = ByteStreamTransport::NONE;  //!< transport resolved
     Fw::String m_endpoint;                                        //!< endpoint description in events
     FwSizeType m_allocationSize = 0;
     bool m_configured = false;
     bool m_started = false;
+
+    // Remembered so a parameter change can bring the tasks back the way they went up
+    FwTaskPriorityType m_priority = Os::Task::TASK_PRIORITY_DEFAULT;
+    Os::Task::ParamType m_stack = Os::Task::TASK_DEFAULT;
+    Os::Task::ParamType m_cpuAffinity = Os::Task::TASK_DEFAULT;
 
     std::atomic<FwSizeType> m_bytesSent{0};
     std::atomic<FwSizeType> m_bytesReceived{0};
