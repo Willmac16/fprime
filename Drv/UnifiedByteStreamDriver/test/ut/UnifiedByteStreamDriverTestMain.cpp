@@ -89,6 +89,16 @@ TEST(Configuration, DirectConfiguration) {
     tester.test_direct_configuration();
 }
 
+TEST(Configuration, CommandLineOverride) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_command_line_override();
+}
+
+TEST(Configuration, ConfigurationBeforeLoadIsLost) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_configuration_before_load_is_lost();
+}
+
 TEST(Configuration, ParameterUpdateReconfigures) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_parameter_update_reconfigures();

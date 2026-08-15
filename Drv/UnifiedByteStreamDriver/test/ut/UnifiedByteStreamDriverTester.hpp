@@ -85,6 +85,13 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! The setters configure the driver without any parameter database behind it
     void test_direct_configuration();
 
+    //! A setter called after the load, which is how a deployment applies -a/-p, beats the
+    //! endpoint the parameter database had saved
+    void test_command_line_override();
+
+    //! A setter called before the load does not survive it
+    void test_configuration_before_load_is_lost();
+
     //! A parameter changed after configuration rebuilds the transport on the new value
     void test_parameter_update_reconfigures();
 

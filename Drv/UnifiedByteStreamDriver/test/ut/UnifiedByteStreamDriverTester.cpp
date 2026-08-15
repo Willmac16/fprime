@@ -275,6 +275,32 @@ void UnifiedByteStreamDriverTester::test_direct_configuration() {
     ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50013));
 }
 
+void UnifiedByteStreamDriverTester::test_command_line_override() {
+    // What a deployment does for -a/-p: the parameter database has one endpoint saved, and
+    // the command line asks for another.
+    this->setParameters(ByteStreamTransport::UDP, loopback(50016), unset());
+    this->component.loadParameters();
+    this->component.setConfiguration(ByteStreamTransport::UDP, loopback(50017), unset());
+
+    // Setting after the load is what makes the command line win. Setting before it would
+    // lose: loadParameters writes every parameter, using the FPP default when the database
+    // has nothing saved, so it would overwrite whatever was set first.
+    ASSERT_EQ(this->component.configure(), ByteStreamTransport::UDP);
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50017");
+    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50017));
+}
+
+void UnifiedByteStreamDriverTester::test_configuration_before_load_is_lost() {
+    // The other order, pinned so the rule above cannot quietly stop being true. Nothing is
+    // saved in the database, so loadParameters resolves every parameter to its FPP default
+    // and the earlier setConfiguration is gone.
+    this->component.setConfiguration(ByteStreamTransport::UDP, loopback(50018), unset());
+    this->component.loadParameters();
+
+    ASSERT_EQ(this->component.configure(), ByteStreamTransport::NONE);
+    ASSERT_EVENTS_TransportNotConfigured_SIZE(1);
+}
+
 void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {
     this->setParameters(ByteStreamTransport::UDP, loopback(50014), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
