@@ -14,15 +14,18 @@ register_fprime_module(
     "${CMAKE_CURRENT_LIST_DIR}/UnifiedByteStreamDriverTypes.fpp"
     "${CMAKE_CURRENT_LIST_DIR}/UnifiedByteStreamDriver.fpp"
   SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/BindingTcpClientSocket.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/SerialStream.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/UnifiedByteStreamDriver.cpp"
   HEADERS
+    "${CMAKE_CURRENT_LIST_DIR}/BindingTcpClientSocket.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/SerialStream.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/UnifiedByteStreamDriver.hpp"
   DEPENDS
     Fw_Logger
     Drv_ByteStreamDriverModel
     Drv_Ip
+    Svc_Interfaces
     Os
 )
 

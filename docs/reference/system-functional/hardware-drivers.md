@@ -58,7 +58,7 @@ The Linux UART Driver provides byte stream access to serial ports on Linux syste
 
 ### Unified Byte Stream Driver
 
-The Unified Byte Stream Driver covers all of the above transports in a single component, selecting between them from its parameters instead of from the topology. Endpoints are supplied as a local and a remote `Drv::IpEndpoint` — four typed address octets plus a port — alongside an optional serial device. Zero carries the meaning the transports already give it: the local endpoint is bound, so `0.0.0.0` binds every interface and a zero port takes an ephemeral one, while the remote endpoint is a destination, so an entirely zero one is no destination at all and the link listens or replies to its last sender instead. Combinations the transports cannot serve are reported as warning events and leave the driver unconfigured rather than half-configured.
+The Unified Byte Stream Driver covers all of the above transports in a single component, selecting between them from its parameters instead of from the topology. `TRANSPORT` names the transport — TCP client, TCP server, UDP or serial — while `LOCAL_ENDPOINT` and `REMOTE_ENDPOINT` are `Drv::IpEndpoint` values of four typed address octets plus a port. Zero carries the meaning the transports already give it: a local endpoint is bound, so `0.0.0.0` binds every interface and a zero port takes an ephemeral one, while a remote endpoint is a destination, so an entirely zero one is no destination at all. The parameters are external, so a deployment can set them from C++ and the ground can set them by command without two copies of the values, and a change made while the link is up rebuilds it in place.
 
 ### GPIO
 

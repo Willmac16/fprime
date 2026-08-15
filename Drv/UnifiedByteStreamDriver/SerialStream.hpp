@@ -1,13 +1,6 @@
 // ======================================================================
 // \title  SerialStream.hpp
-// \author fprime
 // \brief  hpp file for SerialStream, a serial device behind the IpSocket interface
-//
-// \copyright
-// Copyright 2009-2025, by the California Institute of Technology.
-// ALL RIGHTS RESERVED.  United States Government Sponsorship
-// acknowledged.
-//
 // ======================================================================
 #ifndef DRV_UNIFIEDBYTESTREAMDRIVER_SERIALSTREAM_HPP
 #define DRV_UNIFIEDBYTESTREAMDRIVER_SERIALSTREAM_HPP
@@ -26,7 +19,7 @@ namespace Drv {
 static const FwSizeType SERIAL_STREAM_MAX_DEVICE_SIZE = 128;
 
 //! Wait between empty reads, so a device that returns an immediate zero cannot spin the
-//! read task. Well under the ~1 second an idle line already spends inside a single read.
+//! read task. Well under the read timeout an idle line already spends inside a single read.
 static const Fw::TimeInterval SERIAL_STREAM_EMPTY_READ_DELAY = Fw::TimeInterval(0, 10000);
 
 /**
@@ -49,30 +42,25 @@ class SerialStream final : public IpSocket {
     ~SerialStream() override;
 
     //! \brief configure the device without opening it
-    //! \return SOCK_INVALID_CALL when the baud rate is unsupported or the path does not fit
+    //! \param readTimeout: tenths of a second a read waits on an idle line (termios VTIME)
+    //! \return SOCK_INVALID_CALL when a setting is unsupported or the path does not fit
     SocketIpStatus configureSerial(const char* const device,
                                    const SerialBaudRate baud,
                                    const SerialParity parity,
-                                   const SerialFlowControl flowControl);
-
-    //! \brief not valid for a serial device: it is a coding error to call this
-    SocketIpStatus configure(const char* const ipv4_address,
-                             const U16 port,
-                             const U32 send_timeout_seconds,
-                             const U32 send_timeout_microseconds) override;
+                                   const SerialFlowControl flowControl,
+                                   const U8 readTimeout);
 
     //! \brief make a blocked receive return so the read task can exit
     void requestStop();
 
-    //! \brief ask the reader to return, rather than shutting a descriptor that is not a socket
-    //!
-    //! The base implementation closes the descriptor when ::shutdown fails, which it always does on a tty. That would
-    //! leave SocketComponentHelper holding a closed descriptor it goes on to close a second time, so the close is left
-    //! to the helper and this only unblocks the reader.
-    void shutdown(const SocketDescriptor& socketDescriptor) override;
+    //! \brief clear a previous stop request, so a stopped stream can be reopened
+    void clearStop();
 
     //! \brief whether this platform's termios defines the given baud rate
     static bool isBaudRateSupported(const SerialBaudRate baud);
+
+    //! \brief whether this platform's termios can serve the given flow control mode
+    static bool isFlowControlSupported(const SerialFlowControl flowControl);
 
     //! \brief configured device path, empty until configureSerial succeeds
     const char* getDevice() const;
@@ -99,6 +87,7 @@ class SerialStream final : public IpSocket {
     SerialBaudRate m_baud = SerialBaudRate::BAUD_115200;
     SerialParity m_parity = SerialParity::PARITY_NONE;
     SerialFlowControl m_flowControl = SerialFlowControl::FLOW_NONE;
+    U8 m_readTimeout = 10;
     std::atomic<bool> m_stop{false};  //!< set to break out of a blocked receive
 };
 

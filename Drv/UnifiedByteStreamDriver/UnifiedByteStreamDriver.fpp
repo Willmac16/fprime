@@ -3,23 +3,12 @@ module Drv {
     @ A byte stream driver whose transport is selected entirely by parameters.
     @
     @ Replaces a deployment-time choice between Drv.TcpClient, Drv.TcpServer, Drv.Udp and
-    @ Drv.LinuxUartDriver. TRANSPORT picks the transport, REMOTE_ENDPOINT picks the
-    @ direction, and SERIAL_DEVICE names the line.
+    @ Drv.LinuxUartDriver. TRANSPORT names the transport outright; LOCAL_ENDPOINT is what
+    @ every IP transport binds, REMOTE_ENDPOINT is where TCP_CLIENT connects and where UDP
+    @ sends, and SERIAL_DEVICE names the line.
     @
-    @ Zero means what it already means to the transports. LOCAL_ENDPOINT is bound, so its
-    @ zeros are wildcards: an entirely zero one binds every interface on an ephemeral port.
-    @ REMOTE_ENDPOINT is a destination, so an entirely zero one is no destination at all.
-    @
-    @ | TRANSPORT | remote    | behavior                                          |
-    @ |-----------|-----------|---------------------------------------------------|
-    @ | TCP       | reachable | connects to it                                    |
-    @ | TCP       | none      | listens on the local endpoint                     |
-    @ | UDP       | reachable | binds the local endpoint, sends to the remote      |
-    @ | UDP       | none      | binds the local endpoint, replies to last sender   |
-    @ | SERIAL    | -         | serial device, IP parameters ignored               |
-    @
-    @ A remote endpoint that is only partly zero, and a local endpoint asked for alongside
-    @ a TCP remote, are rejected with a warning that leaves the driver unconfigured.
+    @ The parameters are external, so the same values can be set from a topology in C++ or
+    @ by command from the ground without keeping two copies of them.
     passive component UnifiedByteStreamDriver {
 
         # ----------------------------------------------------------------------
@@ -29,14 +18,8 @@ module Drv {
         @ The synchronous byte stream driver interface this component implements
         import ByteStreamDriver
 
-        @ Allocation port used for allocating memory in the receive task
-        output port allocate: Fw.BufferGet
-
-        @ Deallocation of allocated buffers
-        output port deallocate: Fw.BufferSend
-
-        @ The rate group input for sending telemetry
-        sync input port run: Svc.Sched
+        @ Buffers for the receive task
+        import Svc.BufferAllocation
 
         # ----------------------------------------------------------------------
         # Parameters, events, telemetry

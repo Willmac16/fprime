@@ -11,71 +11,83 @@ See [`Drv::ByteStreamDriver`](../../Interfaces/docs/sdd.md) for the interface an
 ## Design
 
 The component does `import ByteStreamDriver`, so it presents the same ports as the other
-byte stream drivers. It reuses the framework's transports — `Drv::TcpClientSocket`,
-`Drv::TcpServerSocket` and `Drv::UdpSocket` — driven by `Drv::SocketComponentHelper`, which
-supplies the read task, the reconnect task and the open/close lifecycle.
+byte stream drivers, and `import Svc.BufferAllocation` for the buffers its read task fills.
+It reuses the framework's transports — `Drv::TcpServerSocket` and `Drv::UdpSocket` — driven
+by `Drv::SocketComponentHelper`, which supplies the read task, the reconnect task and the
+open/close lifecycle.
 
-`Drv::SerialStream` implements `Drv::IpSocket` on top of a POSIX termios device. That
-interface is really a byte-stream endpoint interface, so one read loop serves all four
-transports. All four are held as members, which avoids dynamic allocation.
+Two transports are local to this module:
+
+- `Drv::SerialStream` implements `Drv::IpSocket` on top of a POSIX termios device. That
+  interface is really a byte-stream endpoint interface, so one read loop serves them all.
+- `Drv::BindingTcpClientSocket` is a `Drv::TcpClientSocket` that binds a local endpoint
+  before it connects, which the base class does not do.
+
+All four are held as members, which avoids dynamic allocation.
+
+Nothing outside this directory changes. That is deliberate: the module is meant to drop
+into a project repository without a patch to F´ itself, so where the framework does not do
+what is needed, the module subclasses rather than edits.
 
 ### Endpoints
 
 An endpoint is a `Drv::IpEndpoint`: four `U8` address octets plus a `U16` port. Typed
-octets cannot express an invalid address, so there is no address parsing or validation and
-a host name cannot be entered.
+octets cannot express an invalid address, so there is no address parsing to do and a host
+name cannot be entered.
 
-Zero carries the meaning the transports already give it, which differs by the role the
-endpoint plays.
-
-`LOCAL_ENDPOINT` is what gets bound, and both of its fields have a wildcard:
-
-| field | zero means |
-|---|---|
-| address | 0.0.0.0, bind every interface |
-| port | take an ephemeral port; `getLocalPort` reports what was assigned |
-
-So the all-zero default binds every interface on an ephemeral port. That is a bind, not a
-missing one — there is no way to say "do not bind", because there is no reason to: a
-sender that binds nothing is given an ephemeral port anyway, and binding it explicitly is
-what lets a reply come back.
-
-`REMOTE_ENDPOINT` is a destination, and zero addresses nothing:
-
-| remote endpoint | means |
-|---|---|
-| entirely zero | no destination: TCP listens, UDP replies to the last sender |
-| address and port both set | the destination to reach |
-| only partly zero | rejected: neither a destination nor "no destination" |
+Zero carries the meaning the transports already give it, which differs by role.
+`LOCAL_ENDPOINT` is bound, so an address of `0.0.0.0` binds every interface and a port of
+zero takes an ephemeral one; the all-zero default binds every interface on an ephemeral
+port, and `getLocalPort` and the `LocalPort` channel report what was assigned.
+`REMOTE_ENDPOINT` is a destination, so an entirely zero one is no destination at all, and
+one that is only partly zero — an address without a port, or a port without an address —
+is rejected.
 
 ### Configuration
 
-`REMOTE_ENDPOINT` decides the direction of an IP link:
+`TRANSPORT` names the transport outright rather than leaving it to be inferred:
 
-| `TRANSPORT` | remote | behavior |
-|-------------|--------|----------|
-| `TCP` | reachable | connects to it; a local endpoint asked for as well is rejected |
-| `TCP` | none | listens on the local endpoint |
-| `UDP` | reachable | binds the local endpoint and sends to the remote |
-| `UDP` | none | binds the local endpoint and replies to the last sender |
-| `SERIAL` | any | serial device; IP parameters warned, unused |
-| `NONE` | any | disabled, with a warning |
+| `TRANSPORT`  | binds `LOCAL_ENDPOINT` | uses `REMOTE_ENDPOINT`                    |
+|--------------|------------------------|-------------------------------------------|
+| `TCP_CLIENT` | when asked for         | required: the destination to connect to    |
+| `TCP_SERVER` | always                 | unused                                     |
+| `UDP`        | always                 | the destination; none means reply-to-sender|
+| `SERIAL`     | no                     | no                                         |
+| `NONE`       | no                     | no: the driver stays disabled              |
 
-A TCP link that connects out binds wherever the system puts it, so a `LOCAL_ENDPOINT`
-asked for alongside a reachable remote is a request that cannot be honored and is
-rejected rather than quietly dropped. Every other combination resolves.
+Rejected: `TCP_CLIENT` with no destination, a partly zero remote endpoint, `SERIAL` with no
+device, a zero `RECV_BUFFER_SIZE`, a `SEND_TIMEOUT` with a microseconds field of 1000000 or
+more, a `SERIAL_BAUD_RATE` this platform's termios does not define, and any settings a
+transport refuses. Each emits `UnsupportedConfiguration` and leaves the driver disabled
+rather than half-configured. A transport that refuses its settings is reported, not
+asserted on: these values come from an operator.
 
-A combination that cannot be served emits `UnsupportedConfiguration` and leaves the driver
-unconfigured — a link that silently works in one direction is worse than one that refuses
-to start and says why. Parameters that do not apply to the transport emit
-`IgnoredConfiguration`, a warning rather than a rejection. Also rejected: a zero
-`RECV_BUFFER_SIZE`, a `SEND_TIMEOUT_MICROSECONDS` of 1000000 or more, and a
-`SERIAL_BAUD_RATE` this platform's termios does not define.
+Parameters that do not apply to the selected transport are simply unused. They are not
+worth an event.
 
-Configuration resolves once, in `parametersLoaded` — or on the first `start` for
-deployments with no parameter database. A later parameter change emits
-`ConfigurationChangeDeferred` and applies at the next restart, because rebuilding a
-transport underneath a live read task is not safe. A rejection is equally final.
+### Parameters are external
+
+Every parameter is `external`, so this component owns the storage. `setConfiguration`,
+`setSerialConfiguration` and `setBufferConfiguration` write the same fields the parameter
+database writes, which means a deployment can configure the driver from C++ without a
+second copy of the values to keep in step — a `param save` saves what C++ set, and a
+`param set` overrides it.
+
+### Changing parameters at run time
+
+A parameter that changes while nothing is running is resolved immediately. A parameter that
+changes while the read task is running is staged and the live connection is dropped: the
+task picks the change up through `getSocketHandler` on its way back round its reconnect
+path, and reopens on the new values. `ConfigurationReloaded` reports it.
+
+Doing it that way — rather than stopping and restarting the task — matters twice over.
+`Drv::SocketComponentHelper` asserts its tasks have never been started, so it cannot be
+restarted at all. And the configuration and the sockets it configures belong to the read
+task while that task is alive, so applying a change on the commanding thread would be a
+data race; `m_configLock` guards the storage, and the apply happens on the read task.
+
+A change that resolves to nothing does not take a working link down: the rejection is
+reported and the link carries on as it was.
 
 ## Usage
 
@@ -93,17 +105,38 @@ void exitTasks() {
 ```
 
 `start` is a no-op on a rejected configuration, so callers need not check first.
-`getTransport` reports what resolved; `getLocalPort` reports the bound port.
 
 ### In a topology
 
 The driver presents the same ports as the other byte stream drivers, so it drops into the
-place any of them occupies. Taking the `Ref` deployment's comm driver as the shape, where
-`comDriver` is a `Drv.TcpClient` wired to the CCSDS comms subtopology:
+place any of them occupies. Taking the `Ref` deployment's comm driver as the shape:
 
 ```fpp
-# instances.fpp
-instance comDriver: Drv.UnifiedByteStreamDriver base id 0x10025000
+# instances.fpp — the phases carry the driver's own lifecycle
+instance comDriver: Drv.UnifiedByteStreamDriver base id 0x10025000 \
+{
+  phase Fpp.ToCpp.Phases.configComponents """
+  // Optional: configure from C++ instead of, or ahead of, the parameter database
+  {
+      const U8 address[] = {127, 0, 0, 1};
+      comDriver.setConfiguration(Drv::ByteStreamTransport::TCP_CLIENT,
+                                 Drv::IpEndpoint(),
+                                 Drv::IpEndpoint(address, 50000));
+  }
+  """
+
+  phase Fpp.ToCpp.Phases.startTasks """
+  comDriver.start();
+  """
+
+  phase Fpp.ToCpp.Phases.stopTasks """
+  comDriver.stop();
+  """
+
+  phase Fpp.ToCpp.Phases.freeThreads """
+  (void) comDriver.join();
+  """
+}
 
 # topology.fpp
 instance comDriver
@@ -118,48 +151,22 @@ connections Comms {
   ComCcsds.Subtopology.drvSendOut -> comDriver.$send
   comDriver.ready                 -> ComCcsds.Subtopology.drvConnected
 }
-
-connections RateGroups {
-  # Drives the telemetry in this component. Any rate group will do.
-  rateGroup1Comp.RateGroupMemberOut[3] -> comDriver.run
-}
 ```
 
-The startup and teardown calls go where the other driver's did:
-
-```c++
-void setupTopology(const TopologyState& state) {
-    // ...
-    loadParameters();   // parametersLoaded resolves the transport
-    startTasks(state);
-    comDriver.start();  // no-op if the parameters were rejected
-}
-
-void teardownTopology(const TopologyState& state) {
-    comDriver.stop();
-    (void)comDriver.join();
-    // ...
-}
-```
-
-Two things differ from a driver configured by the topology. The endpoint comes from the
-parameter database rather than from `configure`, so a deployment that takes its endpoint
-from the command line has to get those values into the parameters before `loadParameters`
-runs, or accept the saved ones. And `run` is worth connecting even though nothing depends
-on it: it is the only thing that emits the byte counters and the connection state.
+There is no rate group connection to make: telemetry is pushed as it changes and downsampled
+by the packetizer, like any other channel.
 
 ### Standalone use
 
 The module is self-contained: everything it needs is in this directory, and it depends only
-on `Drv_Ip`, `Drv_ByteStreamDriverModel`, `Fw_Logger` and `Os` — all framework modules any
-project already has. To use it in a project rather than from upstream, copy this directory
-anywhere in the project and add `add_fprime_subdirectory` for it.
+on `Drv_Ip`, `Drv_ByteStreamDriverModel`, `Svc_Interfaces`, `Fw_Logger` and `Os` — all
+framework modules any project already has. To use it in a project rather than from upstream,
+copy this directory anywhere in the project and add `add_fprime_subdirectory` for it.
 
 Two follow-ups if you move it out of `Drv/`. Autocoded headers are included by their path
-from the build root, so the `<Drv/UnifiedByteStreamDriver/...Ac.hpp>` includes in
-`UnifiedByteStreamDriver.hpp` and `SerialStream.hpp` need the new path. And the FPP puts
-its types in `module Drv`; rename that module if you would rather not add to the
-framework's namespace.
+from the build root, so the `<Drv/UnifiedByteStreamDriver/...Ac.hpp>` includes need the new
+path. And the FPP puts its types in `module Drv`; rename that module if you would rather not
+add to the framework's namespace.
 
 ### Parameters
 
@@ -172,25 +179,30 @@ framework's namespace.
 | `SERIAL_BAUD_RATE` | `Drv.SerialBaudRate` | `BAUD_115200` |
 | `SERIAL_PARITY` | `Drv.SerialParity` | `PARITY_NONE` |
 | `SERIAL_FLOW_CONTROL` | `Drv.SerialFlowControl` | `FLOW_NONE` |
+| `SERIAL_READ_TIMEOUT` | `U8`, tenths of a second | 10 |
 | `RECV_BUFFER_SIZE` | `FwSizeType` | 1024 |
-| `SEND_TIMEOUT_SECONDS` | `U32` | 1 |
-| `SEND_TIMEOUT_MICROSECONDS` | `U32` | 0 |
-
-Parameters, telemetry and events live in `Parameters.fppi`, `Telemetry.fppi` and
-`Events.fppi`.
+| `SEND_TIMEOUT` | `Drv.SendTimeout` | 1 s |
 
 ### Serial specifics
 
-The device is opened non-canonical, 8 data bits, `VMIN=0`/`VTIME=10`, so a read on an idle
-line returns after about a second. `Drv::SerialStream` absorbs those empty reads and keeps
-reading, waiting 10 ms between them so that a device returning an immediate zero cannot
-spin the read task; `stop` asks the blocked read to return. That is why stopping a serial
-link can take up to a second.
+The device is opened non-canonical and raw: 8 data bits, no input translation, no echo, no
+signal generation, and no software flow control unless `FLOW_SOFTWARE` asks for it — a
+`0x11` or `0x13` byte in the data would otherwise stop and start the line.
 
-`Drv::SerialStream` also overrides `shutdown`. The `Drv::IpSocket` default closes the
-descriptor when `::shutdown` fails, which it does on any tty, and it leaves
-`Drv::SocketComponentHelper` holding a descriptor it goes on to close a second time. The
-override asks the reader to return and leaves the close to the helper that owns it.
+`VMIN=0` with `VTIME=SERIAL_READ_TIMEOUT` makes a read on an idle line return empty after
+that many tenths of a second. `Drv::SerialStream` absorbs those empty reads and keeps
+reading, waiting 10 ms between them so a device returning an immediate zero cannot spin the
+read task. That timeout is also what bounds how long stopping a serial link takes.
+
+Stopping a serial link does not go through `Drv::SocketComponentHelper::stop`. That would
+shut the descriptor down, and `Drv::IpSocket::shutdown` closes what `::shutdown` could not
+shut — every tty — without clearing the descriptor the helper still holds and later closes
+again. The stop path does the same work minus that shutdown, and the read returns on its
+own read timeout.
+
+Baud rates above 230400 are not in POSIX. Linux defines them; macOS does not, so a rate this
+platform's termios does not define is rejected at configuration time rather than silently
+run at the wrong speed.
 
 ## Ports
 
@@ -200,20 +212,14 @@ override asks the reader to return and leaves the close to the helper that owns 
 | `recv` | Output; delivers received data with a status |
 | `recvReturnIn` | Guarded input; returns ownership of a `recv` buffer |
 | `ready` | Output; invoked when the transport opens |
-| `allocate` / `deallocate` | Output; buffer management for the read task |
-| `run` | Sync input; rate group tick that emits telemetry |
+| `allocate` / `deallocate` | `Svc.BufferAllocation`, for the read task |
 
 ## Telemetry
 
-| Name | Description |
-|---|---|
-| `BytesSent` | Bytes handed to the transport since startup |
-| `BytesRecv` | Bytes received from the transport since startup |
-| `Transport` | Transport resolved from the parameters |
-| `Connected` | Whether the transport is currently open |
-
 `BytesSent` and `BytesRecv` match `Drv::LinuxUartDriver` in name, type and channel id, so
-ground displays built for that driver work unchanged.
+ground displays built for that driver work unchanged. `Transport`, `Connected` and
+`LocalPort` report what the link is doing, and the remaining channels report each parameter
+value in force, so the configuration can be read back without a parameter dump.
 
 ## Events
 
@@ -222,25 +228,8 @@ ground displays built for that driver work unchanged.
 | `ConfigurationApplied` | activity high | Parameters resolved to a usable configuration |
 | `TransportNotConfigured` | warning high | `TRANSPORT` is `NONE` |
 | `UnsupportedConfiguration` | warning high | Parameters describe a configuration this driver cannot serve |
-| `IgnoredConfiguration` | warning low | Parameters supplied that do not apply to the transport |
-| `ConfigurationChangeDeferred` | warning low | Parameter changed after configuration; restart needed |
+| `ConfigurationReloaded` | activity high | A parameter changed and the transport was rebuilt |
 | `PortOpened` | activity high | Transport opened and ready |
-| `NoBuffers` | warning high | No buffer available to receive into |
-| `SendError` | warning low | A transmission failed |
-| `ReceiveError` | warning low | A reception failed |
 
-## Requirements
-
-| Name | Description | Validation |
-|---|---|---|
-| UBSD-COMP-001 | The component shall implement the Drv.ByteStreamDriver interface | inspection |
-| UBSD-COMP-002 | The component shall select its transport from the TRANSPORT parameter | unit test |
-| UBSD-COMP-003 | The component shall support TCP, UDP and serial transports | unit test |
-| UBSD-COMP-004 | The component shall accept IP endpoints as typed address octets and a port | inspection |
-| UBSD-COMP-005 | The component shall bind the local endpoint, treating its zero fields as the wildcard address and an ephemeral port | unit test |
-| UBSD-COMP-006 | The component shall resolve the direction of the link from the remote endpoint | unit test |
-| UBSD-COMP-007 | The component shall warn and remain unconfigured on an unsupported configuration | unit test |
-| UBSD-COMP-008 | The component shall warn when parameters do not apply to the selected transport | unit test |
-| UBSD-COMP-009 | The component shall defer parameter changes made after configuration | unit test |
-| UBSD-COMP-010 | The component shall reject a remote endpoint that is only partly zero | unit test |
-| UBSD-COMP-011 | The component shall report the local port the transport is bound to, including an ephemeral one | unit test |
+Send and receive failures are logged through `Fw::Logger`, not evented, which is what
+`Drv::Udp` and `Drv::TcpClient` do.

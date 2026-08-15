@@ -8,13 +8,10 @@ module Drv {
 
     @ An IPv4 endpoint: the four address octets plus a port.
     @
-    @ Zero means what it already means to the transports, which differs by the role the
-    @ endpoint plays. On the local endpoint, which is what gets bound, an address of
-    @ 0.0.0.0 binds every interface and a port of zero takes an ephemeral one, so an
-    @ entirely zero local endpoint binds every interface on an ephemeral port. On the
-    @ remote endpoint, which is a destination, zero addresses nothing, so an entirely zero
-    @ remote endpoint is unconfigured: no destination. A remote endpoint that is only
-    @ partly zero is neither, and is rejected.
+    @ Zero means what it already means to the transports. On a local endpoint, which is
+    @ bound, an address of 0.0.0.0 binds every interface and a port of zero takes an
+    @ ephemeral one. On a remote endpoint, which is a destination, zero addresses nothing,
+    @ so an entirely zero remote endpoint is no destination at all.
     struct IpEndpoint {
         @ Address octets in dotted-quad order, so 127.0.0.1 is [127, 0, 0, 1]
         address: [4] U8
@@ -22,24 +19,31 @@ module Drv {
         $port: U16
     } default { address = 0, $port = 0 }
 
-    @ Transport selected by the UnifiedByteStreamDriver TRANSPORT parameter
+    @ Time allowed for a transmission before it gives up
+    struct SendTimeout {
+        seconds: U32
+        @ Must be less than 1000000: whole seconds belong in the seconds field
+        microseconds: U32
+    } default { seconds = 1, microseconds = 0 }
+
+    @ Transport used by the UnifiedByteStreamDriver
     enum ByteStreamTransport {
         @ No transport selected: the driver stays disabled
         NONE = 0
-        @ TCP: a client when only a remote endpoint is supplied, a server when only a local one is
-        TCP = 1
-        @ UDP: receives on the local endpoint and/or sends to the remote endpoint
-        UDP = 2
-        @ Serial: a POSIX (termios) serial device
-        SERIAL = 3
+        @ TCP connecting out to the remote endpoint
+        TCP_CLIENT = 1
+        @ TCP listening on the local endpoint
+        TCP_SERVER = 2
+        @ UDP, bound to the local endpoint
+        UDP = 3
+        @ A POSIX (termios) serial device
+        SERIAL = 4
     }
 
     @ Reason a parameter set was rejected as an unsupported configuration
     enum ByteStreamConfigError {
-        @ TCP was given a remote endpoint to connect to and a local endpoint to bind. A
-        @ connecting socket takes the local endpoint the system gives it, so honoring both
-        @ is not something this driver can do.
-        TCP_LOCAL_AND_REMOTE = 0
+        @ TCP_CLIENT was requested with no remote endpoint to connect to
+        MISSING_REMOTE_ENDPOINT = 0
         @ The remote endpoint is only partly zero, so it is neither a destination that can
         @ be reached nor the entirely zero endpoint that means no destination at all
         INCOMPLETE_REMOTE_ENDPOINT = 1
@@ -51,18 +55,15 @@ module Drv {
         INVALID_SEND_TIMEOUT = 4
         @ The requested baud rate is not supported by this platform
         UNSUPPORTED_BAUD_RATE = 5
+        @ The transport rejected the settings it was given
+        TRANSPORT_REJECTED_SETTINGS = 6
     }
 
-    @ Group of parameters that does not apply to the selected transport
-    enum ByteStreamConfigGroup {
-        @ LOCAL_ENDPOINT and REMOTE_ENDPOINT
-        IP = 0
-        @ SERIAL_DEVICE, SERIAL_BAUD_RATE, SERIAL_PARITY and SERIAL_FLOW_CONTROL
-        SERIAL = 1
-    }
-
-    @ Serial line baud rate. Rates above 230400 are not available on every platform and are
-    @ rejected at configuration time when the platform does not define them.
+    @ Serial line baud rate.
+    @
+    @ Rates above 230400 are not in POSIX and are not defined by every platform's termios.
+    @ macOS in particular defines none of them, so a rate this platform does not define is
+    @ rejected at configuration time rather than silently run at the wrong speed.
     enum SerialBaudRate: U32 {
         BAUD_9600 = 9600
         BAUD_19200 = 19200
@@ -87,6 +88,8 @@ module Drv {
         FLOW_NONE = 0
         @ RTS/CTS hardware flow control
         FLOW_HARDWARE = 1
+        @ XON/XOFF software flow control
+        FLOW_SOFTWARE = 2
     }
 
 }

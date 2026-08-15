@@ -1,13 +1,6 @@
 // ======================================================================
 // \title  UnifiedByteStreamDriver.cpp
-// \author fprime
 // \brief  cpp file for UnifiedByteStreamDriver component implementation class
-//
-// \copyright
-// Copyright 2009-2025, by the California Institute of Technology.
-// ALL RIGHTS RESERVED.  United States Government Sponsorship
-// acknowledged.
-//
 // ======================================================================
 
 #include "UnifiedByteStreamDriver.hpp"
@@ -22,85 +15,179 @@ namespace Drv {
 // ----------------------------------------------------------------------
 
 UnifiedByteStreamDriver::UnifiedByteStreamDriver(const char* const compName)
-    : UnifiedByteStreamDriverComponentBase(compName), SocketComponentHelper() {}
+    : UnifiedByteStreamDriverComponentBase(compName), SocketComponentHelper() {
+    this->registerExternalParameters(this);
+}
 
 UnifiedByteStreamDriver::~UnifiedByteStreamDriver() {}
+
+// ----------------------------------------------------------------------
+// External parameters
+// ----------------------------------------------------------------------
+
+Fw::SerializeStatus UnifiedByteStreamDriver::deserializeParam(const FwPrmIdType base_id,
+                                                              const FwPrmIdType local_id,
+                                                              const Fw::ParamValid prmStat,
+                                                              Fw::SerialBufferBase& buff) {
+    if ((prmStat != Fw::ParamValid::VALID) && (prmStat != Fw::ParamValid::DEFAULT)) {
+        return Fw::SerializeStatus::FW_DESERIALIZE_TYPE_MISMATCH;
+    }
+    // The read task reads this storage when it applies a staged change, so a set landing on
+    // the command thread takes the same lock
+    Os::ScopeLock lock(this->m_configLock);
+    switch (local_id) {
+        case PARAMID_TRANSPORT:
+            return buff.deserializeTo(this->m_transportParam);
+        case PARAMID_LOCAL_ENDPOINT:
+            return buff.deserializeTo(this->m_localEndpoint);
+        case PARAMID_REMOTE_ENDPOINT:
+            return buff.deserializeTo(this->m_remoteEndpoint);
+        case PARAMID_SERIAL_DEVICE:
+            return buff.deserializeTo(this->m_serialDevice);
+        case PARAMID_SERIAL_BAUD_RATE:
+            return buff.deserializeTo(this->m_serialBaudRate);
+        case PARAMID_SERIAL_PARITY:
+            return buff.deserializeTo(this->m_serialParity);
+        case PARAMID_SERIAL_FLOW_CONTROL:
+            return buff.deserializeTo(this->m_serialFlowControl);
+        case PARAMID_SERIAL_READ_TIMEOUT:
+            return buff.deserializeTo(this->m_serialReadTimeout);
+        case PARAMID_RECV_BUFFER_SIZE:
+            return buff.deserializeTo(this->m_recvBufferSize);
+        case PARAMID_SEND_TIMEOUT:
+            return buff.deserializeTo(this->m_sendTimeout);
+        default:
+            FW_ASSERT(false, static_cast<FwAssertArgType>(local_id));
+            break;
+    }
+    return Fw::SerializeStatus::FW_DESERIALIZE_TYPE_MISMATCH;
+}
+
+Fw::SerializeStatus UnifiedByteStreamDriver::serializeParam(const FwPrmIdType base_id,
+                                                            const FwPrmIdType local_id,
+                                                            Fw::SerialBufferBase& buff) const {
+    Os::ScopeLock lock(this->m_configLock);
+    switch (local_id) {
+        case PARAMID_TRANSPORT:
+            return buff.serializeFrom(this->m_transportParam);
+        case PARAMID_LOCAL_ENDPOINT:
+            return buff.serializeFrom(this->m_localEndpoint);
+        case PARAMID_REMOTE_ENDPOINT:
+            return buff.serializeFrom(this->m_remoteEndpoint);
+        case PARAMID_SERIAL_DEVICE:
+            return buff.serializeFrom(this->m_serialDevice);
+        case PARAMID_SERIAL_BAUD_RATE:
+            return buff.serializeFrom(this->m_serialBaudRate);
+        case PARAMID_SERIAL_PARITY:
+            return buff.serializeFrom(this->m_serialParity);
+        case PARAMID_SERIAL_FLOW_CONTROL:
+            return buff.serializeFrom(this->m_serialFlowControl);
+        case PARAMID_SERIAL_READ_TIMEOUT:
+            return buff.serializeFrom(this->m_serialReadTimeout);
+        case PARAMID_RECV_BUFFER_SIZE:
+            return buff.serializeFrom(this->m_recvBufferSize);
+        case PARAMID_SEND_TIMEOUT:
+            return buff.serializeFrom(this->m_sendTimeout);
+        default:
+            FW_ASSERT(false, static_cast<FwAssertArgType>(local_id));
+            break;
+    }
+    return Fw::SerializeStatus::FW_SERIALIZE_FORMAT_ERROR;
+}
+
+void UnifiedByteStreamDriver::setConfiguration(const ByteStreamTransport transport,
+                                               const IpEndpoint& localEndpoint,
+                                               const IpEndpoint& remoteEndpoint) {
+    Os::ScopeLock lock(this->m_configLock);
+    this->m_transportParam = transport;
+    this->m_localEndpoint = localEndpoint;
+    this->m_remoteEndpoint = remoteEndpoint;
+}
+
+void UnifiedByteStreamDriver::setSerialConfiguration(const Fw::StringBase& device,
+                                                     const SerialBaudRate baudRate,
+                                                     const SerialParity parity,
+                                                     const SerialFlowControl flowControl,
+                                                     const U8 readTimeout) {
+    Os::ScopeLock lock(this->m_configLock);
+    this->m_serialDevice = device;
+    this->m_serialBaudRate = baudRate;
+    this->m_serialParity = parity;
+    this->m_serialFlowControl = flowControl;
+    this->m_serialReadTimeout = readTimeout;
+}
+
+void UnifiedByteStreamDriver::setBufferConfiguration(const FwSizeType recvBufferSize, const SendTimeout& sendTimeout) {
+    Os::ScopeLock lock(this->m_configLock);
+    this->m_recvBufferSize = recvBufferSize;
+    this->m_sendTimeout = sendTimeout;
+}
 
 // ----------------------------------------------------------------------
 // Configuration
 // ----------------------------------------------------------------------
 
 void UnifiedByteStreamDriver::formatAddress(const IpEndpoint& endpoint, Fw::String& address) {
-    // The socket layer takes a dotted-quad string, and typed octets always produce a valid
-    // one, which is why this driver has no address validation to do
     const IpEndpoint::Type_of_address& octets = endpoint.get_address();
-    (void)address.format("%u.%u.%u.%u", static_cast<unsigned int>(octets[0]), static_cast<unsigned int>(octets[1]),
-                         static_cast<unsigned int>(octets[2]), static_cast<unsigned int>(octets[3]));
+    (void)address.format("%d.%d.%d.%d", octets[0], octets[1], octets[2], octets[3]);
 }
 
-UnifiedByteStreamDriver::Parameters UnifiedByteStreamDriver::readParameters() {
-    Fw::ParamValid valid = Fw::ParamValid::UNINIT;
-    Parameters parameters;
-    // A parameter that was never set falls back to its declared default, and every default
-    // here is usable, so the validity flag is deliberately not consulted
-    parameters.transport = this->paramGet_TRANSPORT(valid);
-    parameters.localEndpoint = this->paramGet_LOCAL_ENDPOINT(valid);
-    parameters.remoteEndpoint = this->paramGet_REMOTE_ENDPOINT(valid);
-    parameters.serialDevice = this->paramGet_SERIAL_DEVICE(valid);
-    parameters.baudRate = this->paramGet_SERIAL_BAUD_RATE(valid);
-    parameters.parity = this->paramGet_SERIAL_PARITY(valid);
-    parameters.flowControl = this->paramGet_SERIAL_FLOW_CONTROL(valid);
-    parameters.recvBufferSize = this->paramGet_RECV_BUFFER_SIZE(valid);
-    parameters.sendTimeoutSeconds = this->paramGet_SEND_TIMEOUT_SECONDS(valid);
-    parameters.sendTimeoutMicroseconds = this->paramGet_SEND_TIMEOUT_MICROSECONDS(valid);
-    return parameters;
+bool UnifiedByteStreamDriver::hasAddress(const IpEndpoint& endpoint) {
+    const IpEndpoint::Type_of_address& octets = endpoint.get_address();
+    return (octets[0] != 0) || (octets[1] != 0) || (octets[2] != 0) || (octets[3] != 0);
 }
 
-ByteStreamTransport UnifiedByteStreamDriver::reject(const ByteStreamTransport transport,
-                                                    const ByteStreamConfigError error) const {
-    this->log_WARNING_HI_UnsupportedConfiguration(transport, error);
+bool UnifiedByteStreamDriver::hasRemote() const {
+    return UnifiedByteStreamDriver::hasAddress(this->m_remoteEndpoint) || (this->m_remoteEndpoint.get_port() != 0);
+}
+
+bool UnifiedByteStreamDriver::remoteReachable() const {
+    return UnifiedByteStreamDriver::hasAddress(this->m_remoteEndpoint) && (this->m_remoteEndpoint.get_port() != 0);
+}
+
+ByteStreamTransport UnifiedByteStreamDriver::reject(const ByteStreamConfigError error) const {
+    this->log_WARNING_HI_UnsupportedConfiguration(this->m_transportParam, error);
     return ByteStreamTransport::NONE;
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::configure() {
-    if (this->m_configured) {
-        this->log_WARNING_LO_ConfigurationChangeDeferred();
-        return this->m_transport;
-    }
-    // The configuration is resolved once, whether or not it turns out to be usable. A
-    // rejected configuration is not retried behind the operator's back: the warning it
-    // emits is the whole answer.
+    Os::ScopeLock lock(this->m_configLock);
+    return this->applyConfiguration();
+}
+
+ByteStreamTransport UnifiedByteStreamDriver::applyConfiguration() {
     this->m_configured = true;
-    this->m_parameters = this->readParameters();
-    const Parameters& parameters = this->m_parameters;
 
     // Checks that apply whatever the transport is
-    if (parameters.recvBufferSize == 0) {
-        this->m_transport = this->reject(parameters.transport, ByteStreamConfigError::INVALID_BUFFER_SIZE);
+    if (this->m_recvBufferSize == 0) {
+        this->m_transport = this->reject(ByteStreamConfigError::INVALID_BUFFER_SIZE);
         return this->m_transport;
     }
-    if (parameters.sendTimeoutMicroseconds >= 1000000) {
-        this->m_transport = this->reject(parameters.transport, ByteStreamConfigError::INVALID_SEND_TIMEOUT);
+    if (this->m_sendTimeout.get_microseconds() >= 1000000) {
+        this->m_transport = this->reject(ByteStreamConfigError::INVALID_SEND_TIMEOUT);
         return this->m_transport;
     }
-    this->m_allocationSize = parameters.recvBufferSize;
+    this->m_allocationSize = this->m_recvBufferSize;
 
-    switch (parameters.transport.e) {
+    switch (this->m_transportParam.e) {
         case ByteStreamTransport::NONE:
             this->log_WARNING_HI_TransportNotConfigured();
             this->m_transport = ByteStreamTransport::NONE;
             break;
-        case ByteStreamTransport::TCP:
-            this->m_transport = this->configureTcp(parameters);
+        case ByteStreamTransport::TCP_CLIENT:
+            this->m_transport = this->configureTcpClient();
+            break;
+        case ByteStreamTransport::TCP_SERVER:
+            this->m_transport = this->configureTcpServer();
             break;
         case ByteStreamTransport::UDP:
-            this->m_transport = this->configureUdp(parameters);
+            this->m_transport = this->configureUdp();
             break;
         case ByteStreamTransport::SERIAL:
-            this->m_transport = this->configureSerial(parameters);
+            this->m_transport = this->configureSerial();
             break;
         default:
-            FW_ASSERT(false, static_cast<FwAssertArgType>(parameters.transport.e));
+            this->m_transport = this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
             break;
     }
 
@@ -108,117 +195,115 @@ ByteStreamTransport UnifiedByteStreamDriver::configure() {
         this->buildEndpoint();
         this->log_ACTIVITY_HI_ConfigurationApplied(this->m_transport, this->m_endpoint);
     }
+    this->reportConfiguration();
     return this->m_transport;
 }
 
-ByteStreamTransport UnifiedByteStreamDriver::configureTcp(const Parameters& parameters) {
-    if (parameters.hasSerial()) {
-        this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::SERIAL, parameters.transport);
+ByteStreamTransport UnifiedByteStreamDriver::configureTcpClient() {
+    if (this->hasRemote() && (not this->remoteReachable())) {
+        return this->reject(ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
     }
-    // The remote endpoint decides the direction: a destination to reach means connect to it,
-    // no destination means listen on the local endpoint instead
-    this->m_listening = not parameters.hasRemote();
-    if (not this->m_listening) {
-        // A connecting socket binds to whatever local endpoint the system hands it, so a
-        // local endpoint asked for alongside a remote one could not be honored
-        if (parameters.localRequested()) {
-            return this->reject(parameters.transport, ByteStreamConfigError::TCP_LOCAL_AND_REMOTE);
-        }
-        if (not parameters.remoteReachable()) {
-            return this->reject(parameters.transport, ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
-        }
+    if (not this->hasRemote()) {
+        return this->reject(ByteStreamConfigError::MISSING_REMOTE_ENDPOINT);
     }
 
     Fw::String address;
-    const IpEndpoint& endpoint = this->m_listening ? parameters.localEndpoint : parameters.remoteEndpoint;
-    UnifiedByteStreamDriver::formatAddress(endpoint, address);
+    UnifiedByteStreamDriver::formatAddress(this->m_remoteEndpoint, address);
+    SocketIpStatus status =
+        this->m_tcpClient.configure(address.toChar(), this->m_remoteEndpoint.get_port(),
+                                    this->m_sendTimeout.get_seconds(), this->m_sendTimeout.get_microseconds());
+    if (status != SOCK_SUCCESS) {
+        return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
+    }
 
-    IpSocket& socket =
-        this->m_listening ? static_cast<IpSocket&>(this->m_tcpServer) : static_cast<IpSocket&>(this->m_tcpClient);
-    const SocketIpStatus status = socket.configure(address.toChar(), endpoint.get_port(), parameters.sendTimeoutSeconds,
-                                                   parameters.sendTimeoutMicroseconds);
-    FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
-    return ByteStreamTransport::TCP;
+    UnifiedByteStreamDriver::formatAddress(this->m_localEndpoint, address);
+    status = this->m_tcpClient.configureLocal(address.toChar(), this->m_localEndpoint.get_port());
+    if (status != SOCK_SUCCESS) {
+        return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
+    }
+    return ByteStreamTransport::TCP_CLIENT;
 }
 
-ByteStreamTransport UnifiedByteStreamDriver::configureUdp(const Parameters& parameters) {
-    if (parameters.hasSerial()) {
-        this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::SERIAL, parameters.transport);
-    }
-    if (parameters.hasRemote() && (not parameters.remoteReachable())) {
-        return this->reject(parameters.transport, ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
-    }
-
-    // The local endpoint is always bound. Its zeros are the wildcards the socket layer
-    // already understands, so an entirely zero one binds every interface on an ephemeral
-    // port, which is what an unbound sender would have been given anyway.
+ByteStreamTransport UnifiedByteStreamDriver::configureTcpServer() {
     Fw::String address;
-    UnifiedByteStreamDriver::formatAddress(parameters.localEndpoint, address);
-    SocketIpStatus status = this->m_udp.configureRecv(address.toChar(), parameters.localEndpoint.get_port());
-    FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
+    UnifiedByteStreamDriver::formatAddress(this->m_localEndpoint, address);
+    const SocketIpStatus status =
+        this->m_tcpServer.configure(address.toChar(), this->m_localEndpoint.get_port(),
+                                    this->m_sendTimeout.get_seconds(), this->m_sendTimeout.get_microseconds());
+    if (status != SOCK_SUCCESS) {
+        return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
+    }
+    return ByteStreamTransport::TCP_SERVER;
+}
 
-    // Without a destination the socket replies to whoever sent the last datagram, which the
-    // bind above is what makes possible
-    if (parameters.hasRemote()) {
-        UnifiedByteStreamDriver::formatAddress(parameters.remoteEndpoint, address);
-        status = this->m_udp.configureSend(address.toChar(), parameters.remoteEndpoint.get_port(),
-                                           parameters.sendTimeoutSeconds, parameters.sendTimeoutMicroseconds);
-        FW_ASSERT(status == SOCK_SUCCESS, static_cast<FwAssertArgType>(status));
+ByteStreamTransport UnifiedByteStreamDriver::configureUdp() {
+    if (this->hasRemote() && (not this->remoteReachable())) {
+        return this->reject(ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
+    }
+
+    Fw::String address;
+    UnifiedByteStreamDriver::formatAddress(this->m_localEndpoint, address);
+    SocketIpStatus status = this->m_udp.configureRecv(address.toChar(), this->m_localEndpoint.get_port());
+    if (status != SOCK_SUCCESS) {
+        return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
+    }
+
+    // Without a destination the socket replies to whoever sent the last datagram
+    if (this->hasRemote()) {
+        UnifiedByteStreamDriver::formatAddress(this->m_remoteEndpoint, address);
+        status = this->m_udp.configureSend(address.toChar(), this->m_remoteEndpoint.get_port(),
+                                           this->m_sendTimeout.get_seconds(), this->m_sendTimeout.get_microseconds());
+        if (status != SOCK_SUCCESS) {
+            return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
+        }
     }
     return ByteStreamTransport::UDP;
 }
 
-ByteStreamTransport UnifiedByteStreamDriver::configureSerial(const Parameters& parameters) {
-    if (parameters.localRequested() || parameters.hasRemote()) {
-        this->log_WARNING_LO_IgnoredConfiguration(ByteStreamConfigGroup::IP, parameters.transport);
+ByteStreamTransport UnifiedByteStreamDriver::configureSerial() {
+    if (this->m_serialDevice.length() == 0) {
+        return this->reject(ByteStreamConfigError::NO_SERIAL_DEVICE);
     }
-    if (not parameters.hasSerial()) {
-        return this->reject(parameters.transport, ByteStreamConfigError::NO_SERIAL_DEVICE);
+    if (not SerialStream::isBaudRateSupported(this->m_serialBaudRate)) {
+        return this->reject(ByteStreamConfigError::UNSUPPORTED_BAUD_RATE);
     }
-    if (not SerialStream::isBaudRateSupported(parameters.baudRate)) {
-        return this->reject(parameters.transport, ByteStreamConfigError::UNSUPPORTED_BAUD_RATE);
-    }
-    const SocketIpStatus status = this->m_serial.configureSerial(parameters.serialDevice.toChar(), parameters.baudRate,
-                                                                 parameters.parity, parameters.flowControl);
+    const SocketIpStatus status =
+        this->m_serial.configureSerial(this->m_serialDevice.toChar(), this->m_serialBaudRate, this->m_serialParity,
+                                       this->m_serialFlowControl, this->m_serialReadTimeout);
     if (status != SOCK_SUCCESS) {
-        // The baud rate was already checked, so the only remaining rejection is a device
-        // path this build cannot hold
-        return this->reject(parameters.transport, ByteStreamConfigError::NO_SERIAL_DEVICE);
+        return this->reject(ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS);
     }
     return ByteStreamTransport::SERIAL;
 }
 
 void UnifiedByteStreamDriver::buildEndpoint() {
-    const Parameters& parameters = this->m_parameters;
     // A wildcard local port is only resolved when the transport opens, so prefer the port
     // actually bound over the requested one
     const U16 bound = this->getLocalPort();
-    const U16 localPort = (bound != 0) ? bound : parameters.localEndpoint.get_port();
-    const U16 remotePort = parameters.remoteEndpoint.get_port();
+    const U16 localPort = (bound != 0) ? bound : this->m_localEndpoint.get_port();
+    const U16 remotePort = this->m_remoteEndpoint.get_port();
     Fw::String local;
     Fw::String remote;
-    UnifiedByteStreamDriver::formatAddress(parameters.localEndpoint, local);
-    UnifiedByteStreamDriver::formatAddress(parameters.remoteEndpoint, remote);
+    UnifiedByteStreamDriver::formatAddress(this->m_localEndpoint, local);
+    UnifiedByteStreamDriver::formatAddress(this->m_remoteEndpoint, remote);
     switch (this->m_transport.e) {
-        case ByteStreamTransport::TCP:
-            if (this->m_listening) {
-                (void)this->m_endpoint.format("listen %s:%hu", local.toChar(), localPort);
-            } else {
-                (void)this->m_endpoint.format("connect %s:%hu", remote.toChar(), remotePort);
-            }
+        case ByteStreamTransport::TCP_CLIENT:
+            (void)this->m_endpoint.format("connect %s:%hu", remote.toChar(), remotePort);
+            break;
+        case ByteStreamTransport::TCP_SERVER:
+            (void)this->m_endpoint.format("listen %s:%hu", local.toChar(), localPort);
             break;
         case ByteStreamTransport::UDP:
-            if (parameters.hasRemote()) {
+            if (this->hasRemote()) {
                 (void)this->m_endpoint.format("bind %s:%hu send %s:%hu", local.toChar(), localPort, remote.toChar(),
                                               remotePort);
             } else {
-                // Without a destination, UDP replies to whoever sent the last datagram
                 (void)this->m_endpoint.format("bind %s:%hu", local.toChar(), localPort);
             }
             break;
         case ByteStreamTransport::SERIAL:
-            (void)this->m_endpoint.format("%s @ %u", parameters.serialDevice.toChar(),
-                                          static_cast<unsigned int>(parameters.baudRate.e));
+            (void)this->m_endpoint.format("%s @ %u", this->m_serialDevice.toChar(),
+                                          static_cast<unsigned int>(this->m_serialBaudRate.e));
             break;
         default:
             this->m_endpoint = "";
@@ -226,15 +311,58 @@ void UnifiedByteStreamDriver::buildEndpoint() {
     }
 }
 
+void UnifiedByteStreamDriver::reportConfiguration() {
+    Os::ScopeLock lock(this->m_tlmLock);
+    this->tlmWrite_Transport(this->m_transport);
+    this->tlmWrite_LocalEndpoint(this->m_localEndpoint);
+    this->tlmWrite_RemoteEndpoint(this->m_remoteEndpoint);
+    this->tlmWrite_SerialDevice(this->m_serialDevice);
+    this->tlmWrite_SerialBaudRate(this->m_serialBaudRate);
+    this->tlmWrite_SerialParity(this->m_serialParity);
+    this->tlmWrite_SerialFlowControl(this->m_serialFlowControl);
+    this->tlmWrite_SerialReadTimeout(this->m_serialReadTimeout);
+    this->tlmWrite_RecvBufferSize(this->m_recvBufferSize);
+    this->tlmWrite_SendTimeout(this->m_sendTimeout);
+    this->tlmWrite_LocalPort(this->getLocalPort());
+    // Connected is not written here: this runs under the configuration lock, and asking the
+    // helper whether it is open takes the helper's lock, which is the opposite of the order
+    // the helper takes them in. It is written where the state actually changes instead.
+}
+
 void UnifiedByteStreamDriver::parametersLoaded() {
     (void)this->configure();
 }
 
 void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
-    // The transport is configured once and then driven by a running task. Rebuilding it
-    // underneath that task is not safe, so an update is acknowledged and deferred.
-    if (this->m_configured) {
-        this->log_WARNING_LO_ConfigurationChangeDeferred();
+    if (not this->m_configured) {
+        return;  // Nothing is up yet, so the first configure will pick this value up
+    }
+    if (not this->m_started) {
+        (void)this->configure();
+        this->log_ACTIVITY_HI_ConfigurationReloaded();
+        return;
+    }
+
+    // With a read task running, the configuration and the sockets it configures belong to
+    // that task. Stage the change and drop the live connection: the task picks the change
+    // up on its way back round, through getSocketHandler, and reopens on the new values.
+    ByteStreamTransport live = ByteStreamTransport::NONE;
+    {
+        Os::ScopeLock lock(this->m_configLock);
+        this->m_reconfigurePending = true;
+        this->m_suppressApply = true;
+        live = this->m_transport;  // read under the lock: the read task writes this
+    }
+    // A read blocked on a socket does not notice a close, so break it out first. A blocked
+    // serial read is not a socket to shut down - it returns on its own read timeout - and
+    // shutting it down would close the descriptor the close below owns.
+    if (live != ByteStreamTransport::SERIAL) {
+        this->shutdown();
+    }
+    this->close();
+    {
+        Os::ScopeLock lock(this->m_configLock);
+        this->m_suppressApply = false;
     }
 }
 
@@ -255,6 +383,7 @@ void UnifiedByteStreamDriver::start(const FwTaskPriorityType priority,
     }
     FW_ASSERT(not this->m_started);  // It is a coding error to start the driver twice
     this->m_started = true;
+    this->m_serial.clearStop();
     SocketComponentHelper::start(Fw::String(this->getObjName()), priority, stack, cpuAffinity);
 }
 
@@ -262,16 +391,29 @@ void UnifiedByteStreamDriver::stop() {
     if (not this->m_started) {
         return;
     }
-    // A blocked serial read has no socket shutdown to break it out; SerialStream::shutdown,
-    // which SocketComponentHelper::stop calls, asks it to return instead
-    SocketComponentHelper::stop();
+    if (this->m_transport == ByteStreamTransport::SERIAL) {
+        // SocketComponentHelper::stop would shut the descriptor down, and IpSocket::shutdown
+        // closes what ::shutdown could not shut - every tty - without clearing the descriptor
+        // the helper still holds and later closes again. Stop the task the same way, minus
+        // that shutdown: a blocked serial read returns on its own read timeout.
+        {
+            Os::ScopeLock lock(this->m_lock);
+            this->m_stop = true;
+        }
+        this->stopReconnect();
+        this->m_serial.requestStop();
+    } else {
+        SocketComponentHelper::stop();
+    }
 }
 
 Os::Task::Status UnifiedByteStreamDriver::join() {
     if (not this->m_started) {
-        return Os::Task::Status::OP_OK;
+        return Os::Task::Status::OP_OK;  // nothing was ever started to join with
     }
-    return SocketComponentHelper::join();
+    const Os::Task::Status status = SocketComponentHelper::join();
+    this->m_started = false;
+    return status;
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::getTransport() const {
@@ -281,16 +423,15 @@ ByteStreamTransport UnifiedByteStreamDriver::getTransport() const {
 U16 UnifiedByteStreamDriver::getLocalPort() {
     U16 port = 0;
     switch (this->m_transport.e) {
-        case ByteStreamTransport::TCP:
-            // A connecting socket has no local port of its own to report
-            port = this->m_listening ? this->m_tcpServer.getListenPort() : static_cast<U16>(0);
+        case ByteStreamTransport::TCP_SERVER:
+            port = this->m_tcpServer.getListenPort();
             break;
         case ByteStreamTransport::UDP:
-            // The local endpoint is always bound, so there is always a port to report
             port = this->m_udp.getRecvPort();
             break;
         default:
-            port = 0;  // A serial line has no local port to report
+            // A TCP client and a serial line bind no port this driver can report
+            port = 0;
             break;
     }
     return port;
@@ -301,29 +442,51 @@ U16 UnifiedByteStreamDriver::getLocalPort() {
 // ----------------------------------------------------------------------
 
 IpSocket& UnifiedByteStreamDriver::getSocketHandler() {
+    Os::ScopeLock lock(this->m_configLock);
+    // The read and reconnect tasks come through here before every open and every receive,
+    // which is where a configuration staged by parameterUpdated is safe to apply
+    if (this->m_reconfigurePending && (not this->m_suppressApply)) {
+        this->m_reconfigurePending = false;
+        const ByteStreamTransport previous = this->m_transport;
+        (void)this->applyConfiguration();
+        if (this->m_transport == ByteStreamTransport::NONE) {
+            // A change that resolves to nothing must not take a working link down with it
+            this->m_transport = previous;
+        } else {
+            this->log_ACTIVITY_HI_ConfigurationReloaded();
+        }
+    }
+    IpSocket* socket = nullptr;
     switch (this->m_transport.e) {
-        case ByteStreamTransport::TCP:
-            if (this->m_listening) {
-                return this->m_tcpServer;
-            }
-            return this->m_tcpClient;
+        case ByteStreamTransport::TCP_CLIENT:
+            socket = &this->m_tcpClient;
+            break;
+        case ByteStreamTransport::TCP_SERVER:
+            socket = &this->m_tcpServer;
+            break;
         case ByteStreamTransport::UDP:
-            return this->m_udp;
+            socket = &this->m_udp;
+            break;
         case ByteStreamTransport::SERIAL:
-            return this->m_serial;
+            socket = &this->m_serial;
+            break;
         default:
-            // Every path that reaches a transport is gated on a resolved configuration, so
-            // an unconfigured driver arriving here is a coding error
-            FW_ASSERT(false, static_cast<FwAssertArgType>(this->m_transport.e));
             break;
     }
-    return this->m_udp;  // Unreachable: the assert above does not return
+    FW_ASSERT(socket != nullptr, static_cast<FwAssertArgType>(this->m_transport.e));
+    return *socket;
 }
 
 Fw::Buffer UnifiedByteStreamDriver::getBuffer() {
     Fw::Buffer buffer = this->allocate_out(0, this->m_allocationSize);
     if (not buffer.isValid()) {
-        this->log_WARNING_HI_NoBuffers();
+        // A zero-size buffer is not valid but may still own memory, so hand it back rather
+        // than dropping it on the floor
+        if (buffer.getData() != nullptr) {
+            this->deallocate_out(0, buffer);
+        }
+        Fw::Logger::log("[WARNING] %s: no buffer available to receive into\n", this->getObjName());
+        return Fw::Buffer();
     }
     return buffer;
 }
@@ -335,18 +498,33 @@ void UnifiedByteStreamDriver::sendBuffer(Fw::Buffer buffer, SocketIpStatus statu
     if (status == SOCK_SUCCESS) {
         recvStatus = ByteStreamStatus::OP_OK;
         this->m_bytesReceived += buffer.getSize();
+        {
+            Os::ScopeLock lock(this->m_tlmLock);
+            this->tlmWrite_BytesRecv(this->m_bytesReceived);
+        }
     } else if (status == SOCK_NO_DATA_AVAILABLE) {
         recvStatus = ByteStreamStatus::RECV_NO_DATA;
     } else {
         recvStatus = ByteStreamStatus::OTHER_ERROR;
-        this->log_WARNING_LO_ReceiveError(static_cast<I32>(status));
     }
     this->recv_out(0, buffer, recvStatus);
 }
 
 void UnifiedByteStreamDriver::connected() {
-    this->buildEndpoint();  // an ephemeral port only has a value now
-    this->log_ACTIVITY_HI_PortOpened(this->m_transport, this->m_endpoint);
+    ByteStreamTransport transport = ByteStreamTransport::NONE;
+    {
+        // The endpoint description is built from the parameter storage, which a command
+        // can be writing at the same moment
+        Os::ScopeLock lock(this->m_configLock);
+        this->buildEndpoint();  // an ephemeral port only has a value now
+        transport = this->m_transport;
+    }
+    this->log_ACTIVITY_HI_PortOpened(transport, this->m_endpoint);
+    {
+        Os::ScopeLock lock(this->m_tlmLock);
+        this->tlmWrite_LocalPort(this->getLocalPort());
+        this->tlmWrite_Connected(true);
+    }
     if (this->isConnected_ready_OutputPort(0)) {
         this->ready_out(0);
     }
@@ -370,7 +548,10 @@ void UnifiedByteStreamDriver::terminateServer() {
 }
 
 void UnifiedByteStreamDriver::readLoop() {
-    if ((this->m_transport == ByteStreamTransport::TCP) && this->m_listening) {
+    // A listening socket has to be brought up before the helper's loop can accept on it,
+    // and torn down after. This mirrors Drv::TcpServerComponentImpl, which is where the
+    // logic lives: Drv::Ip carries the socket, not the listen lifecycle.
+    if (this->m_transport == ByteStreamTransport::TCP_SERVER) {
         Drv::SocketIpStatus status = Drv::SocketIpStatus::SOCK_NOT_STARTED;
         // Keep trying to listen until it works, a stop is requested, or reopen is disabled
         // @non-terminating@: retry loop bounded by stop request
@@ -390,6 +571,10 @@ void UnifiedByteStreamDriver::readLoop() {
     } else {
         SocketComponentHelper::readLoop();
     }
+    {
+        Os::ScopeLock lock(this->m_tlmLock);
+        this->tlmWrite_Connected(false);
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -406,6 +591,10 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
     switch (status) {
         case SOCK_SUCCESS:
             this->m_bytesSent += size;
+            {
+                Os::ScopeLock lock(this->m_tlmLock);
+                this->tlmWrite_BytesSent(this->m_bytesSent);
+            }
             returnStatus = ByteStreamStatus::OP_OK;
             break;
         // The read task owns reopening the transport, so the caller retries rather than
@@ -418,21 +607,11 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
             returnStatus = ByteStreamStatus::OTHER_ERROR;
             break;
     }
-    if (returnStatus != ByteStreamStatus::OP_OK) {
-        this->log_WARNING_LO_SendError(static_cast<I32>(status));
-    }
     return returnStatus;
 }
 
 void UnifiedByteStreamDriver::recvReturnIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) {
     this->deallocate_out(0, fwBuffer);
-}
-
-void UnifiedByteStreamDriver::run_handler(FwIndexType portNum, U32 context) {
-    this->tlmWrite_BytesSent(this->m_bytesSent);
-    this->tlmWrite_BytesRecv(this->m_bytesReceived);
-    this->tlmWrite_Transport(this->m_transport);
-    this->tlmWrite_Connected(this->isOpened());
 }
 
 }  // end namespace Drv

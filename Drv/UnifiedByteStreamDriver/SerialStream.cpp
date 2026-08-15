@@ -1,13 +1,6 @@
 // ======================================================================
 // \title  SerialStream.cpp
-// \author fprime
 // \brief  cpp file for SerialStream, a serial device behind the IpSocket interface
-//
-// \copyright
-// Copyright 2009-2025, by the California Institute of Technology.
-// ALL RIGHTS RESERVED.  United States Government Sponsorship
-// acknowledged.
-//
 // ======================================================================
 
 #include "SerialStream.hpp"
@@ -25,8 +18,8 @@ namespace {
 
 //! \brief map a baud rate to its termios speed constant
 //!
-//! Rates above 230400 are optional in termios, so those cases only exist where the
-//! platform defines the constant. Unmapped rates fall through to unsupported.
+//! Rates above 230400 are not in POSIX. Linux defines them, macOS does not, so those cases
+//! only exist where the platform defines the constant and unmapped rates are unsupported.
 bool baudToSpeed(const SerialBaudRate baud, speed_t& speed) {
     bool supported = true;
     switch (baud.e) {
@@ -76,39 +69,51 @@ bool SerialStream::isBaudRateSupported(const SerialBaudRate baud) {
     return baudToSpeed(baud, speed);
 }
 
+bool SerialStream::isFlowControlSupported(const SerialFlowControl flowControl) {
+    bool supported = false;
+    switch (flowControl.e) {
+        case SerialFlowControl::FLOW_NONE:
+        case SerialFlowControl::FLOW_SOFTWARE:
+            supported = true;
+            break;
+        case SerialFlowControl::FLOW_HARDWARE:
+#ifdef CRTSCTS
+            supported = true;
+#endif
+            break;
+        default:
+            break;
+    }
+    return supported;
+}
+
 SocketIpStatus SerialStream::configureSerial(const char* const device,
                                              const SerialBaudRate baud,
                                              const SerialParity parity,
-                                             const SerialFlowControl flowControl) {
+                                             const SerialFlowControl flowControl,
+                                             const U8 readTimeout) {
     FW_ASSERT(device != nullptr);
     // Reject rather than silently truncate a device path that does not fit
     if (Fw::StringUtils::string_length(device, SERIAL_STREAM_MAX_DEVICE_SIZE) >= SERIAL_STREAM_MAX_DEVICE_SIZE) {
         return SOCK_INVALID_CALL;
     }
-    if (not SerialStream::isBaudRateSupported(baud)) {
+    if ((not SerialStream::isBaudRateSupported(baud)) or (not SerialStream::isFlowControlSupported(flowControl))) {
         return SOCK_INVALID_CALL;
     }
     (void)Fw::StringUtils::string_copy(this->m_device, device, SERIAL_STREAM_MAX_DEVICE_SIZE);
     this->m_baud = baud;
     this->m_parity = parity;
     this->m_flowControl = flowControl;
+    this->m_readTimeout = readTimeout;
     return SOCK_SUCCESS;
-}
-
-SocketIpStatus SerialStream::configure(const char* const ipv4_address,
-                                       const U16 port,
-                                       const U32 send_timeout_seconds,
-                                       const U32 send_timeout_microseconds) {
-    FW_ASSERT(false);  // Must use configureSerial: a serial device has no IP endpoint
-    return SOCK_INVALID_CALL;
 }
 
 void SerialStream::requestStop() {
     this->m_stop = true;
 }
 
-void SerialStream::shutdown(const SocketDescriptor& socketDescriptor) {
-    this->requestStop();
+void SerialStream::clearStop() {
+    this->m_stop = false;
 }
 
 const char* SerialStream::getDevice() const {
@@ -146,32 +151,43 @@ SocketIpStatus SerialStream::applyLineSettings(const int fd) const {
             return SOCK_INVALID_CALL;
     }
 
-    switch (this->m_flowControl.e) {
-        case SerialFlowControl::FLOW_NONE:
 #ifdef CRTSCTS
-            settings.c_cflag &= static_cast<tcflag_t>(~CRTSCTS);
-#endif
-            break;
-        case SerialFlowControl::FLOW_HARDWARE:
-#ifdef CRTSCTS
-            settings.c_cflag |= static_cast<tcflag_t>(CRTSCTS);
-            break;
+    if (this->m_flowControl == SerialFlowControl::FLOW_HARDWARE) {
+        settings.c_cflag |= static_cast<tcflag_t>(CRTSCTS);
+    } else {
+        settings.c_cflag &= static_cast<tcflag_t>(~CRTSCTS);
+    }
 #else
-            return SOCK_INVALID_CALL;  // No RTS/CTS support on this platform to turn on
+    if (this->m_flowControl == SerialFlowControl::FLOW_HARDWARE) {
+        return SOCK_INVALID_CALL;  // No RTS/CTS support on this platform to turn on
+    }
 #endif
-        default:
-            return SOCK_INVALID_CALL;
+
+    // Raw input: no break handling, no parity marking, no stripping to 7 bits, and none of
+    // the carriage-return and newline translation a terminal would want. Input parity
+    // checking only matters when a parity bit is generated. XON/XOFF is off unless it was
+    // asked for, because leaving it on would let a 0x11 or 0x13 byte in the data stream
+    // stop and start the line.
+    settings.c_iflag &= static_cast<tcflag_t>(
+        ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY | INPCK));
+    if (this->m_parity != SerialParity::PARITY_NONE) {
+        settings.c_iflag |= static_cast<tcflag_t>(INPCK);
+    }
+    if (this->m_flowControl == SerialFlowControl::FLOW_SOFTWARE) {
+        settings.c_iflag |= static_cast<tcflag_t>(IXON | IXOFF);
     }
 
-    // Raw in and out. Input parity checking only matters when a parity bit is generated.
-    settings.c_oflag = 0;
-    settings.c_lflag = 0;
-    settings.c_iflag = (this->m_parity == SerialParity::PARITY_NONE) ? 0 : static_cast<tcflag_t>(INPCK);
+    // Raw output: OPOST is what would otherwise translate a newline on the way out
+    settings.c_oflag &= static_cast<tcflag_t>(~OPOST);
 
-    // MIN=0 with TIME=10 makes a read with no data return 0 after ~1 second, which keeps
-    // the reader responsive to stop requests. See recvProtocol.
+    // Non-canonical: deliver bytes as they arrive rather than by line, do not echo them
+    // back at the device, and do not turn a control character into a signal
+    settings.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO | ECHOE | ECHONL | ISIG | IEXTEN));
+
+    // MIN=0 with TIME=N makes a read with no data return 0 after N tenths of a second,
+    // which keeps the reader responsive to stop requests. See recvProtocol.
     settings.c_cc[VMIN] = 0;
-    settings.c_cc[VTIME] = 10;
+    settings.c_cc[VTIME] = this->m_readTimeout;
 
     if (::cfsetispeed(&settings, speed) != 0) {
         return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
@@ -223,17 +239,14 @@ FwSignedSizeType SerialStream::recvProtocol(const SocketDescriptor& socketDescri
         return 0;  // A zero-size request cannot make progress, so do not spin on it
     }
     FwSignedSizeType received = 0;
-    // VTIME makes an idle line return 0 about once a second. Absorb those so an idle line
+    // VTIME makes an idle line return 0 once per read timeout. Absorb those so an idle line
     // does not push empty receives at the rest of the system, while still noticing a stop.
     // @non-terminating@: retries until data arrives, a read fails, or a stop is requested
     do {
         received = static_cast<FwSignedSizeType>(::read(socketDescriptor.fd, data, static_cast<size_t>(size)));
         if (received == 0) {
-            // VTIME normally paces this loop, but a device at end of file, or one whose
-            // VTIME this platform did not honor, returns an immediate zero every time and
-            // would spin the read task at full tilt. The line is idle either way, so
-            // waiting costs nothing: anything that arrives meanwhile is held by the tty
-            // and returned by the next read.
+            // A device at end of file, or one whose VTIME this platform did not honor,
+            // returns an immediate zero every time and would spin the read task
             (void)Os::Task::delay(SERIAL_STREAM_EMPTY_READ_DELAY);
         }
     } while ((received == 0) && (not this->m_stop));

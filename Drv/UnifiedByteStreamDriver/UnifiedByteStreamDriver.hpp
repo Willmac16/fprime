@@ -1,13 +1,6 @@
 // ======================================================================
 // \title  UnifiedByteStreamDriver.hpp
-// \author fprime
 // \brief  hpp file for UnifiedByteStreamDriver component implementation class
-//
-// \copyright
-// Copyright 2009-2025, by the California Institute of Technology.
-// ALL RIGHTS RESERVED.  United States Government Sponsorship
-// acknowledged.
-//
 // ======================================================================
 
 #ifndef DRV_UNIFIEDBYTESTREAMDRIVER_HPP
@@ -15,13 +8,15 @@
 
 #include <Drv/Ip/IpSocket.hpp>
 #include <Drv/Ip/SocketComponentHelper.hpp>
-#include <Drv/Ip/TcpClientSocket.hpp>
 #include <Drv/Ip/TcpServerSocket.hpp>
 #include <Drv/Ip/UdpSocket.hpp>
 #include <Drv/UnifiedByteStreamDriver/UnifiedByteStreamDriverComponentAc.hpp>
+#include <Fw/Prm/PrmExternalTypes.hpp>
 #include <Fw/Types/String.hpp>
+#include <Os/Mutex.hpp>
 #include <Os/Task.hpp>
 #include <atomic>
+#include "BindingTcpClientSocket.hpp"
 #include "SerialStream.hpp"
 
 namespace Drv {
@@ -30,50 +25,66 @@ namespace Drv {
  * \brief a byte stream driver whose transport is chosen by parameters
  *
  * Covers what Drv::TcpClient, Drv::TcpServer, Drv::Udp and Drv::LinuxUartDriver cover
- * individually. TRANSPORT picks the transport, the remote endpoint picks the direction, and
- * a serial device names the line.
+ * individually. TRANSPORT names the transport outright:
  *
- * Zero carries the meaning the transports already give it, which differs by the endpoint's
- * role. The local endpoint is bound, so 0.0.0.0 binds every interface and a zero port takes
- * an ephemeral one; an entirely zero local endpoint is therefore a wildcard bind, not a
- * missing one. The remote endpoint is a destination, so an entirely zero one is no
- * destination at all, and one that is only partly zero is rejected.
+ * | TRANSPORT   | uses                                                             |
+ * |-------------|------------------------------------------------------------------|
+ * | TCP_CLIENT  | binds LOCAL_ENDPOINT if asked for, connects to REMOTE_ENDPOINT   |
+ * | TCP_SERVER  | listens on LOCAL_ENDPOINT                                        |
+ * | UDP         | binds LOCAL_ENDPOINT, sends to REMOTE_ENDPOINT when there is one  |
+ * | SERIAL      | opens SERIAL_DEVICE                                              |
  *
- * | TRANSPORT | remote        | behavior                                            |
- * |-----------|---------------|-----------------------------------------------------|
- * | TCP       | reachable     | connects to it; a local endpoint asked for conflicts |
- * | TCP       | none          | listens on the local endpoint                       |
- * | UDP       | reachable     | binds the local endpoint and sends to the remote    |
- * | UDP       | none          | binds the local endpoint, replies to the last sender |
- * | SERIAL    | -             | serial device; IP parameters warn, unused           |
+ * Zero means what it already means to the transports. A local endpoint is bound, so
+ * 0.0.0.0 binds every interface and a zero port takes an ephemeral one. A remote endpoint
+ * is a destination, so an entirely zero one is no destination at all.
  *
- * A combination that cannot be served emits UnsupportedConfiguration and leaves the driver
- * unconfigured rather than half-configured. Parameters that do not apply to the selected
- * transport emit IgnoredConfiguration.
- *
- * Configuration resolves once, when parameters load or on the first `start`. A later
- * parameter change emits ConfigurationChangeDeferred and applies at the next restart:
- * rebuilding a transport underneath a live read task is not safe.
- *
- * The transports are the framework's own: Drv::TcpClientSocket, Drv::TcpServerSocket and
- * Drv::UdpSocket, driven by Drv::SocketComponentHelper. Drv::SerialStream presents the
- * serial device through the same Drv::IpSocket interface, so one read loop serves all
- * four. All four are held as members to avoid dynamic allocation.
+ * The parameters are external: this component holds them, so `setConfiguration` from a
+ * topology and a `param set` from the ground write the same values, and there is no second
+ * copy to keep in step. A parameter that changes while the driver is running tears the
+ * transport down and brings it back up on the new values.
  */
-class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBase, public SocketComponentHelper {
+class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBase,
+                                      public SocketComponentHelper,
+                                      public Fw::ParamExternalDelegate {
     friend class UnifiedByteStreamDriverTester;
 
   public:
     explicit UnifiedByteStreamDriver(const char* const compName);
     ~UnifiedByteStreamDriver() override;
 
-    //! \brief resolve the parameters into a transport configuration, without opening it
+    // ----------------------------------------------------------------------
+    // Configuration
+    // ----------------------------------------------------------------------
+
+    //! \brief set the transport and its endpoints directly, without a parameter database
     //!
-    //! Called automatically when parameters load and on the first `start`. Only the first
-    //! call configures; later ones report ConfigurationChangeDeferred.
+    //! Writes the same storage the parameters use, so a later `param set` from the ground
+    //! overwrites this and a `param save` saves what was set here.
+    void setConfiguration(const ByteStreamTransport transport,
+                          const IpEndpoint& localEndpoint,
+                          const IpEndpoint& remoteEndpoint);
+
+    //! \brief set the serial line settings directly
+    void setSerialConfiguration(const Fw::StringBase& device,
+                                const SerialBaudRate baudRate,
+                                const SerialParity parity,
+                                const SerialFlowControl flowControl,
+                                const U8 readTimeout);
+
+    //! \brief set the buffer size and send timeout directly
+    void setBufferConfiguration(const FwSizeType recvBufferSize, const SendTimeout& sendTimeout);
+
+    //! \brief resolve the configuration into a transport, without opening it
     //!
-    //! \return transport in use, NONE when the parameters were rejected
+    //!
+    //! Called automatically when parameters load and on the first `start`.
+    //!
+    //! \return transport in use, NONE when the configuration was rejected
     ByteStreamTransport configure();
+
+    // ----------------------------------------------------------------------
+    // Lifecycle
+    // ----------------------------------------------------------------------
 
     //! \brief start the read and reconnect tasks, configuring first if needed
     //!
@@ -93,13 +104,22 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     //! \brief local port the transport is bound to, 0 when it binds none or is not open
     //!
-    //! A TCP client and a serial line bind no port of their own. A UDP link and a TCP
-    //! listener report the port they were given, which for a zero port is the ephemeral one
-    //! the system assigned once the transport opened.
-    //!
-    //! The read task is what assigns that port, so a caller on another thread should see
-    //! `isOpened` first: that read is what orders the assignment ahead of this one.
+    //! Also reported as the LocalPort channel, which is how a ground system learns the
+    //! ephemeral port a wildcard bind was given.
     U16 getLocalPort();
+
+    // ----------------------------------------------------------------------
+    // Fw::ParamExternalDelegate
+    // ----------------------------------------------------------------------
+
+    Fw::SerializeStatus deserializeParam(const FwPrmIdType base_id,
+                                         const FwPrmIdType local_id,
+                                         const Fw::ParamValid prmStat,
+                                         Fw::SerialBufferBase& buff) override;
+
+    Fw::SerializeStatus serializeParam(const FwPrmIdType base_id,
+                                       const FwPrmIdType local_id,
+                                       Fw::SerialBufferBase& buff) const override;
 
   protected:
     IpSocket& getSocketHandler() override;
@@ -125,80 +145,74 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     void recvReturnIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) override;
 
-    void run_handler(FwIndexType portNum, U32 context) override;
+    //! \brief resolve the configuration; call with m_configLock held
+    ByteStreamTransport applyConfiguration();
 
-    //! \brief parameters read as a set, so validation sees one consistent view
-    struct Parameters {
-        ByteStreamTransport transport;
-        IpEndpoint localEndpoint;
-        IpEndpoint remoteEndpoint;
-        Fw::ParamString serialDevice;
-        SerialBaudRate baudRate;
-        SerialParity parity;
-        SerialFlowControl flowControl;
-        FwSizeType recvBufferSize = 0;
-        U32 sendTimeoutSeconds = 0;
-        U32 sendTimeoutMicroseconds = 0;
-
-        //! \brief whether an endpoint's address is anything other than 0.0.0.0
-        static bool hasAddress(const IpEndpoint& endpoint) {
-            const IpEndpoint::Type_of_address& octets = endpoint.get_address();
-            return (octets[0] != 0) || (octets[1] != 0) || (octets[2] != 0) || (octets[3] != 0);
-        }
-
-        //! \brief whether a local endpoint asks for anything beyond the wildcard bind
-        //!
-        //! The local endpoint is always bound, so this does not decide whether to use it.
-        //! It only distinguishes a bind that was asked for from the wildcard default.
-        bool localRequested() const {
-            return Parameters::hasAddress(this->localEndpoint) || (this->localEndpoint.get_port() != 0);
-        }
-
-        //! \brief whether a destination was supplied at all
-        bool hasRemote() const {
-            return Parameters::hasAddress(this->remoteEndpoint) || (this->remoteEndpoint.get_port() != 0);
-        }
-
-        //! \brief whether the destination supplied is one a transport could reach
-        bool remoteReachable() const {
-            return Parameters::hasAddress(this->remoteEndpoint) && (this->remoteEndpoint.get_port() != 0);
-        }
-
-        bool hasSerial() const { return this->serialDevice.length() > 0; }
-    };
-
-    Parameters readParameters();
-
-    //! \return transport in use, NONE when the combination was rejected
-    ByteStreamTransport configureTcp(const Parameters& parameters);
-    ByteStreamTransport configureUdp(const Parameters& parameters);
-    ByteStreamTransport configureSerial(const Parameters& parameters);
+    //! \return NONE when the combination was rejected
+    ByteStreamTransport configureTcpClient();
+    ByteStreamTransport configureTcpServer();
+    ByteStreamTransport configureUdp();
+    ByteStreamTransport configureSerial();
 
     //! \brief report a rejected configuration
     //! \return NONE, so callers can return this directly
-    ByteStreamTransport reject(const ByteStreamTransport transport, const ByteStreamConfigError error) const;
+    ByteStreamTransport reject(const ByteStreamConfigError error) const;
+
+    //! \brief whether an endpoint's address is anything other than 0.0.0.0
+    static bool hasAddress(const IpEndpoint& endpoint);
+
+    //! \brief whether a destination was supplied at all
+    bool hasRemote() const;
+
+    //! \brief whether the destination supplied is one a transport could reach
+    bool remoteReachable() const;
 
     //! \brief render an endpoint's octets as the dotted-quad string the sockets take
     static void formatAddress(const IpEndpoint& endpoint, Fw::String& address);
 
     //! \brief build the endpoint description reported in events
-    //!
-    //! Prefers the port actually bound over the requested one, so an ephemeral port shows
-    //! up as the port the system assigned rather than as 0.
     void buildEndpoint();
+
+    //! \brief write the resolved configuration out as telemetry
+    void reportConfiguration();
 
     SocketIpStatus startupServer();
     void terminateServer();
 
-    TcpClientSocket m_tcpClient;
+    BindingTcpClientSocket m_tcpClient;
     TcpServerSocket m_tcpServer;
     UdpSocket m_udp;
     SerialStream m_serial;
 
-    Parameters m_parameters;  //!< snapshot the configuration was resolved from
-    ByteStreamTransport m_transport = ByteStreamTransport::NONE;
-    bool m_listening = false;  //!< whether a TCP transport listens rather than connects
-    Fw::String m_endpoint;     //!< endpoint description reported in events
+    // Parameter storage. These are the parameters: the autocoded external parameter
+    // delegate reads and writes them, and setConfiguration writes the same fields.
+    ByteStreamTransport m_transportParam = ByteStreamTransport::NONE;
+    IpEndpoint m_localEndpoint;
+    IpEndpoint m_remoteEndpoint;
+    Fw::ParamString m_serialDevice;
+    SerialBaudRate m_serialBaudRate = SerialBaudRate::BAUD_115200;
+    SerialParity m_serialParity = SerialParity::PARITY_NONE;
+    SerialFlowControl m_serialFlowControl = SerialFlowControl::FLOW_NONE;
+    U8 m_serialReadTimeout = 10;
+    FwSizeType m_recvBufferSize = 1024;
+    SendTimeout m_sendTimeout;
+
+    //! Guards the resolved configuration and the socket objects it configures. The read
+    //! task reaches them through getSocketHandler, which is where a pending change is
+    //! applied, so every mutation happens on one thread at a time.
+    mutable Os::Mutex m_configLock;
+
+    //! Telemetry leaves this component from two threads - the read task counts bytes in,
+    //! the sender counts bytes out - so the writes are serialized against each other.
+    Os::Mutex m_tlmLock;
+    bool m_reconfigurePending = false;
+    //! Set while parameterUpdated is tearing the link down. The teardown calls reach
+    //! getSocketHandler from the caller's thread, and applying there would be the very
+    //! cross-thread write the hand-off exists to avoid.
+    bool m_suppressApply = false;
+
+    ByteStreamTransport m_transport = ByteStreamTransport::NONE;  //!< transport resolved
+    Fw::String m_endpoint;                                        //!< endpoint description in events
     FwSizeType m_allocationSize = 0;
     bool m_configured = false;
     bool m_started = false;

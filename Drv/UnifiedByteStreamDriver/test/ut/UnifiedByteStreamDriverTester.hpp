@@ -1,13 +1,6 @@
 // ======================================================================
 // \title  UnifiedByteStreamDriverTester.hpp
-// \author fprime
 // \brief  hpp file for UnifiedByteStreamDriver test harness implementation class
-//
-// \copyright
-// Copyright 2009-2025, by the California Institute of Technology.
-// ALL RIGHTS RESERVED.  United States Government Sponsorship
-// acknowledged.
-//
 // ======================================================================
 
 #ifndef DRV_UNIFIEDBYTESTREAMDRIVER_TESTER_HPP
@@ -44,59 +37,29 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! No transport selected leaves the driver disabled with a warning
     void test_transport_none();
 
-    //! A remote endpoint alone makes a TCP transport connect out
-    void test_tcp_connect_configuration();
+    //! TCP_CLIENT connects to the remote endpoint
+    void test_tcp_client_configuration();
 
-    //! A local endpoint alone makes a TCP transport listen
-    void test_tcp_listen_configuration();
+    //! TCP_CLIENT with no destination has nothing to connect to
+    void test_tcp_client_missing_remote_rejected();
 
-    //! Both endpoints at once is not a TCP configuration this driver can serve
-    void test_tcp_both_endpoints_rejected();
+    //! TCP_CLIENT may bind a local endpoint of its own before connecting
+    void test_tcp_client_local_bind_accepted();
 
-    //! TCP with nothing supplied listens on every interface with an ephemeral port
-    void test_tcp_wildcard_listen();
+    //! TCP_SERVER listens on the local endpoint
+    void test_tcp_server_configuration();
 
-    //! Both endpoints make a bidirectional UDP link
+    //! TCP_SERVER with nothing supplied listens on every interface, ephemeral port
+    void test_tcp_server_wildcard_listen();
+
+    //! A destination and a local endpoint make a bidirectional UDP link
     void test_udp_bidirectional_configuration();
 
     //! A local endpoint alone makes a UDP link that replies to its last sender
     void test_udp_receive_only_configuration();
 
-    //! A destination alone still binds, on the wildcard endpoint
-    void test_udp_remote_only_configuration();
-
     //! UDP with nothing supplied binds every interface on an ephemeral port
     void test_udp_wildcard_bind();
-
-    //! A serial device makes a serial link
-    void test_serial_configuration();
-
-    //! SERIAL without a device is rejected
-    void test_serial_missing_device_rejected();
-
-    //! IP parameters do not apply to a serial link and are reported as ignored
-    void test_serial_ignores_ip_parameters();
-
-    //! Serial parameters do not apply to an IP link and are reported as ignored
-    void test_ip_ignores_serial_parameters();
-
-    //! A zero receive buffer size is rejected before any transport is touched
-    void test_invalid_buffer_size_rejected();
-
-    //! A send timeout of a full second or more in the microseconds field is rejected
-    void test_invalid_send_timeout_rejected();
-
-    //! Configuration is resolved once: later changes are reported as deferred
-    void test_configuration_change_deferred();
-
-    //! An unconfigured driver refuses to send rather than reaching for a transport
-    void test_unconfigured_driver_refuses_send();
-
-    //! 0.0.0.0 is a wildcard address, not an unset endpoint
-    void test_wildcard_address_is_set();
-
-    //! A zero local port asks for an ephemeral port, not an unset endpoint
-    void test_wildcard_local_port_is_set();
 
     //! A remote address with no port is neither a destination nor unset
     void test_incomplete_remote_rejected();
@@ -104,21 +67,51 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! A remote port with no address is neither a destination nor unset
     void test_remote_port_without_address_rejected();
 
-    //! An ephemeral port is reported once the system has assigned it
-    void test_ephemeral_port_reported();
+    //! A serial device makes a serial link
+    void test_serial_configuration();
+
+    //! SERIAL without a device is rejected
+    void test_serial_missing_device_rejected();
+
+    //! A zero receive buffer size is rejected before any transport is touched
+    void test_invalid_buffer_size_rejected();
+
+    //! A send timeout of a full second or more in the microseconds field is rejected
+    void test_invalid_send_timeout_rejected();
+
+    //! An unconfigured driver refuses to send rather than reaching for a transport
+    void test_unconfigured_driver_refuses_send();
+
+    //! Every parameter value is reported as telemetry when the configuration resolves
+    void test_configuration_telemetry();
+
+    //! The setters configure the driver without any parameter database behind it
+    void test_direct_configuration();
+
+    //! A parameter changed after configuration rebuilds the transport on the new value
+    void test_parameter_update_reconfigures();
+
+    //! A parameter changed while the driver is running takes effect across a restart
+    void test_parameter_update_while_running();
 
     // ----------------------------------------------------------------------
     // Behavior tests
     // ----------------------------------------------------------------------
 
+    //! An ephemeral port is reported once the system has assigned it
+    void test_ephemeral_port_reported();
+
     //! Data flows both ways over a parameter-configured UDP link
     void test_udp_messaging();
 
     //! Data flows both ways over a TCP link that connects out
-    void test_tcp_connect_messaging();
+    void test_tcp_client_messaging();
 
     //! Data flows both ways over a TCP link that listens
-    void test_tcp_listen_messaging();
+    void test_tcp_server_messaging();
+
+    //! A TCP client asked to bind a local port connects from that port
+    void test_tcp_client_binds_local_port();
 
     //! Data flows both ways over a parameter-configured serial link, using a pty as the
     //! device so that the test needs no real hardware
@@ -131,8 +124,11 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Buffers handed back on recvReturnIn are deallocated
     void test_buffer_deallocation();
 
-    //! Telemetry reports the transport and the byte counters
-    void test_telemetry();
+    //! A buffer the allocator could not serve is not passed on, and not leaked
+    void test_failed_allocation_returns_buffer();
+
+    //! The byte counters are pushed as they change
+    void test_byte_counter_telemetry();
 
   private:
     // ----------------------------------------------------------------------
@@ -145,6 +141,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
 
     Fw::Buffer from_allocate_handler(const FwIndexType portNum, FwSizeType size) override;
 
+    void from_deallocate_handler(const FwIndexType portNum, Fw::Buffer& fwBuffer) override;
+
   private:
     // ----------------------------------------------------------------------
     // Helper methods
@@ -156,10 +154,10 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Initialize components
     void initComponents();
 
-    //! Build a loopback endpoint on the given port. A port of zero leaves it unset.
+    //! Build a loopback endpoint on the given port
     static IpEndpoint loopback(const U16 port);
 
-    //! An endpoint that is not set
+    //! An endpoint that is entirely zero
     static IpEndpoint unset();
 
     //! An arbitrary endpoint
@@ -194,8 +192,12 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     U8 m_data_storage[SEND_DATA_BUFFER_SIZE];
     //! Set by the receive handler once a matching buffer has arrived
     std::atomic<bool> m_received;
+    //! When set, the allocator hands back a buffer the driver cannot use
+    bool m_starve_allocator;
+    //! Buffers handed out by the allocator and not yet returned
+    std::atomic<I32> m_outstanding_buffers;
 };
 
 }  // end namespace Drv
 
-#endif  // DRV_UNIFIEDBYTESTREAMDRIVER_TESTER_HPP
+#endif

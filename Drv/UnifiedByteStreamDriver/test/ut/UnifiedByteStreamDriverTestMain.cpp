@@ -9,24 +9,29 @@ TEST(Configuration, TransportNone) {
     tester.test_transport_none();
 }
 
-TEST(Configuration, TcpConnect) {
+TEST(Configuration, TcpClient) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_connect_configuration();
+    tester.test_tcp_client_configuration();
 }
 
-TEST(Configuration, TcpListen) {
+TEST(Configuration, TcpClientMissingRemoteRejected) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_listen_configuration();
+    tester.test_tcp_client_missing_remote_rejected();
 }
 
-TEST(Configuration, TcpBothEndpointsRejected) {
+TEST(Configuration, TcpClientLocalBindAccepted) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_both_endpoints_rejected();
+    tester.test_tcp_client_local_bind_accepted();
 }
 
-TEST(Configuration, TcpWildcardListen) {
+TEST(Configuration, TcpServer) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_wildcard_listen();
+    tester.test_tcp_server_configuration();
+}
+
+TEST(Configuration, TcpServerWildcardListen) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_tcp_server_wildcard_listen();
 }
 
 TEST(Configuration, UdpBidirectional) {
@@ -39,64 +44,9 @@ TEST(Configuration, UdpReceiveOnly) {
     tester.test_udp_receive_only_configuration();
 }
 
-TEST(Configuration, UdpRemoteOnly) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_udp_remote_only_configuration();
-}
-
 TEST(Configuration, UdpWildcardBind) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_udp_wildcard_bind();
-}
-
-TEST(Configuration, Serial) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_serial_configuration();
-}
-
-TEST(Configuration, SerialMissingDeviceRejected) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_serial_missing_device_rejected();
-}
-
-TEST(Configuration, SerialIgnoresIpParameters) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_serial_ignores_ip_parameters();
-}
-
-TEST(Configuration, IpIgnoresSerialParameters) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_ip_ignores_serial_parameters();
-}
-
-TEST(Configuration, InvalidBufferSizeRejected) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_invalid_buffer_size_rejected();
-}
-
-TEST(Configuration, InvalidSendTimeoutRejected) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_invalid_send_timeout_rejected();
-}
-
-TEST(Configuration, ChangeDeferred) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_configuration_change_deferred();
-}
-
-TEST(Configuration, UnconfiguredDriverRefusesSend) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_unconfigured_driver_refuses_send();
-}
-
-TEST(Configuration, WildcardAddressIsSet) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_wildcard_address_is_set();
-}
-
-TEST(Configuration, WildcardLocalPortIsSet) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_wildcard_local_port_is_set();
 }
 
 TEST(Configuration, IncompleteRemoteRejected) {
@@ -109,6 +59,51 @@ TEST(Configuration, RemotePortWithoutAddressRejected) {
     tester.test_remote_port_without_address_rejected();
 }
 
+TEST(Configuration, Serial) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_serial_configuration();
+}
+
+TEST(Configuration, SerialMissingDeviceRejected) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_serial_missing_device_rejected();
+}
+
+TEST(Configuration, InvalidBufferSizeRejected) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_invalid_buffer_size_rejected();
+}
+
+TEST(Configuration, InvalidSendTimeoutRejected) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_invalid_send_timeout_rejected();
+}
+
+TEST(Configuration, UnconfiguredDriverRefusesSend) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_unconfigured_driver_refuses_send();
+}
+
+TEST(Configuration, ConfigurationTelemetry) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_configuration_telemetry();
+}
+
+TEST(Configuration, DirectConfiguration) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_direct_configuration();
+}
+
+TEST(Configuration, ParameterUpdateReconfigures) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_parameter_update_reconfigures();
+}
+
+TEST(Nominal, ParameterUpdateWhileRunning) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_parameter_update_while_running();
+}
+
 TEST(Nominal, EphemeralPortReported) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_ephemeral_port_reported();
@@ -119,14 +114,19 @@ TEST(Nominal, UdpMessaging) {
     tester.test_udp_messaging();
 }
 
-TEST(Nominal, TcpConnectMessaging) {
+TEST(Nominal, TcpClientMessaging) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_connect_messaging();
+    tester.test_tcp_client_messaging();
 }
 
-TEST(Nominal, TcpListenMessaging) {
+TEST(Nominal, TcpClientBindsLocalPort) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_tcp_listen_messaging();
+    tester.test_tcp_client_binds_local_port();
+}
+
+TEST(Nominal, TcpServerMessaging) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_tcp_server_messaging();
 }
 
 TEST(Nominal, SerialMessaging) {
@@ -144,9 +144,14 @@ TEST(Nominal, BufferDeallocation) {
     tester.test_buffer_deallocation();
 }
 
-TEST(Nominal, Telemetry) {
+TEST(Nominal, FailedAllocationReturnsBuffer) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_telemetry();
+    tester.test_failed_allocation_returns_buffer();
+}
+
+TEST(Nominal, ByteCounterTelemetry) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_byte_counter_telemetry();
 }
 
 int main(int argc, char** argv) {

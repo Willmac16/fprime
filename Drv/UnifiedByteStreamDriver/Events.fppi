@@ -23,22 +23,11 @@ event UnsupportedConfiguration(
     id 2 \
     format "Unsupported {} configuration: {}. Byte stream driver stays disabled"
 
-@ Parameters were supplied that do not apply to the selected transport
-event IgnoredConfiguration(
-                              ignored: Drv.ByteStreamConfigGroup @< The group of ignored parameters
-                              transport: Drv.ByteStreamTransport @< The selected transport
-                          ) \
-    severity warning low \
+@ A parameter changed, so the transport was torn down and rebuilt on the new values
+event ConfigurationReloaded() \
+    severity activity high \
     id 3 \
-    format "Ignoring {} parameters: they do not apply to transport {}"
-
-@ A parameter changed after the driver was configured. The driver applies its
-@ configuration once, so the new value takes effect on the next restart.
-event ConfigurationChangeDeferred() \
-    severity warning low \
-    id 4 \
-    format "Byte stream driver parameter changed: restart required for it to take effect" \
-    throttle 5
+    format "Byte stream driver parameter changed: transport rebuilt"
 
 @ The transport opened and the driver is ready to carry data
 event PortOpened(
@@ -46,30 +35,5 @@ event PortOpened(
                     endpoint: string size Drv.BYTE_STREAM_ENDPOINT_STRING_SIZE @< The resolved endpoint
                 ) \
     severity activity high \
-    id 5 \
+    id 4 \
     format "Byte stream driver opened {} on {}"
-
-@ The driver could not allocate a buffer to receive into
-event NoBuffers() \
-    severity warning high \
-    id 6 \
-    format "Byte stream driver ran out of receive buffers" \
-    throttle 20
-
-@ A transmission failed
-event SendError(
-                   error: I32 @< The Drv.SocketIpStatus value returned by the transport
-               ) \
-    severity warning low \
-    id 7 \
-    format "Byte stream driver failed to send with status {}" \
-    throttle 5
-
-@ A reception failed
-event ReceiveError(
-                      error: I32 @< The Drv.SocketIpStatus value returned by the transport
-                  ) \
-    severity warning low \
-    id 8 \
-    format "Byte stream driver failed to receive with status {}" \
-    throttle 5
