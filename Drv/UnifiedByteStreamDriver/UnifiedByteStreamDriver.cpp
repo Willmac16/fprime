@@ -84,17 +84,26 @@ void UnifiedByteStreamDriver::setConfiguration(const ByteStreamTransport transpo
     this->m_config.transportParam = transport;
     this->m_config.localEndpoint = localEndpoint;
     this->m_config.remoteEndpoint = remoteEndpoint;
+    this->m_config.overrides.hasEndpoints = true;
+    this->m_config.overrides.transport = transport;
+    this->m_config.overrides.localEndpoint = localEndpoint;
+    this->m_config.overrides.remoteEndpoint = remoteEndpoint;
 }
 
 void UnifiedByteStreamDriver::setSerialConfiguration(const SerialConfig& serialConfig) {
     Os::ScopeLock lock(this->m_config.lock);
     this->m_config.serial = serialConfig;
+    this->m_config.overrides.hasSerial = true;
+    this->m_config.overrides.serial = serialConfig;
 }
 
 void UnifiedByteStreamDriver::setBufferConfiguration(const FwSizeType recvBufferSize, const SendTimeout& sendTimeout) {
     Os::ScopeLock lock(this->m_config.lock);
     this->m_config.recvBufferSize = recvBufferSize;
     this->m_config.sendTimeout = sendTimeout;
+    this->m_config.overrides.hasBuffers = true;
+    this->m_config.overrides.recvBufferSize = recvBufferSize;
+    this->m_config.overrides.sendTimeout = sendTimeout;
 }
 
 // ----------------------------------------------------------------------
@@ -299,6 +308,25 @@ void UnifiedByteStreamDriver::reportConfiguration() {
     this->tlmWrite_RECV_BUFFER_SIZE(this->m_config.recvBufferSize);
     this->tlmWrite_SEND_TIMEOUT(this->m_config.sendTimeout);
     this->tlmWrite_LocalPort(this->getLocalPort());
+}
+
+void UnifiedByteStreamDriver::parametersLoaded() {
+    // The one place that knows the load has finished, which is what the setters need: a
+    // value they wrote beforehand has just been overwritten and goes back on top here.
+    Os::ScopeLock lock(this->m_config.lock);
+    const Configuration::Overrides& overrides = this->m_config.overrides;
+    if (overrides.hasEndpoints) {
+        this->m_config.transportParam = overrides.transport;
+        this->m_config.localEndpoint = overrides.localEndpoint;
+        this->m_config.remoteEndpoint = overrides.remoteEndpoint;
+    }
+    if (overrides.hasSerial) {
+        this->m_config.serial = overrides.serial;
+    }
+    if (overrides.hasBuffers) {
+        this->m_config.recvBufferSize = overrides.recvBufferSize;
+        this->m_config.sendTimeout = overrides.sendTimeout;
+    }
 }
 
 void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {

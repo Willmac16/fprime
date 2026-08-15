@@ -94,9 +94,9 @@ TEST(Configuration, CommandLineOverride) {
     tester.test_command_line_override();
 }
 
-TEST(Configuration, ConfigurationBeforeLoadIsLost) {
+TEST(Configuration, ConfigurationBeforeLoadSurvives) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_configuration_before_load_is_lost();
+    tester.test_configuration_before_load_survives();
 }
 
 TEST(Configuration, ParameterUpdateReconfigures) {

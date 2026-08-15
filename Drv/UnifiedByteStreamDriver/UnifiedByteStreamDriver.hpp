@@ -130,6 +130,8 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! Every other configuration reads through the helper's loop unchanged.
     void readLoop() override;
 
+    void parametersLoaded() override;
+
     void parameterUpdated(FwPrmIdType id) override;
 
   private:
@@ -202,6 +204,22 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
         //! getSocketHandler from the caller's thread, and applying there would be the very
         //! cross-thread write the hand-off exists to avoid.
         bool suppressApply = false;
+
+        //! What a deployment set through the setters. loadParameters writes every parameter,
+        //! using the FPP default where the database has nothing saved, so a setter that runs
+        //! before it would otherwise be overwritten. Keeping a copy and re-applying it once
+        //! the load finishes is what makes the setters work on either side of it.
+        struct Overrides {
+            bool hasEndpoints = false;
+            bool hasSerial = false;
+            bool hasBuffers = false;
+            ByteStreamTransport transport = ByteStreamTransport::NONE;
+            IpEndpoint localEndpoint;
+            IpEndpoint remoteEndpoint;
+            SerialConfig serial;
+            FwSizeType recvBufferSize = 0;
+            SendTimeout sendTimeout;
+        } overrides;
     };
     mutable Configuration m_config;
 

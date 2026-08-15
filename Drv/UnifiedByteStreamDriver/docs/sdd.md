@@ -74,20 +74,17 @@ second copy of the values to keep in step — a `param save` saves what C++ set,
 ### Configuring from the command line
 
 `Drv::TcpClient` and `Drv::Udp` take their endpoint from `argv` through a `configure` call,
-which is how `Ref` implements `-a` and `-p`. The setters above serve the same purpose, with
-one rule: **call them after `loadParameters`.**
+which is how `Ref` implements `-a` and `-p`. The setters serve the same purpose, and a
+deployment may call them from any phase: the command line wins over a saved endpoint either
+way, which is what an operator swapping a radio between primary and secondary wants — no
+edit to `PrmDb.dat`, and a `param set` from the ground still overrides at run time.
 
-The rule is not a style preference. `loadParameters` writes every parameter, and when the
-database has nothing saved for one it writes the FPP default rather than leaving the value
-alone. A setter called before the load is therefore overwritten — by a saved value if there
-is one, by the FPP default if there is not — and the link comes up on the wrong endpoint, or
-disabled. Called after, the command line wins over both, which is what an operator swapping
-a radio between primary and secondary wants: no edit to `PrmDb.dat`, and a `param set` from
-the ground still overrides at run time.
-
-The `startTasks` phase is the natural home, since it runs after parameters have loaded and
-before the driver opens anything. `Configuration.CommandLineOverride` and
-`Configuration.ConfigurationBeforeLoadIsLost` pin both directions.
+That takes a little care inside the component, because `loadParameters` writes every
+parameter, using the FPP default where the database has nothing saved. A setter that ran
+first would simply be overwritten. So the setters also keep a copy of what they were given,
+and `parametersLoaded` — the one hook that knows the load has finished — puts that copy back
+on top. `Configuration.CommandLineOverride` and
+`Configuration.ConfigurationBeforeLoadSurvives` pin both orders.
 
 ### Resolving and re-resolving
 
@@ -128,8 +125,7 @@ place any of them occupies. Taking the `Ref` deployment's comm driver as the sha
 instance comDriver: Drv.UnifiedByteStreamDriver base id 0x10025000 \
 {
   phase Fpp.ToCpp.Phases.startTasks """
-  // Optional: a command-line endpoint, applied here because this phase runs after
-  // loadParameters. See "Configuring from the command line" below.
+  // Optional: a command-line endpoint
   if (state.hostname != nullptr && state.port != 0) {
       comDriver.setConfiguration(Drv::ByteStreamTransport::TCP_CLIENT,
                                  Drv::IpEndpoint(),

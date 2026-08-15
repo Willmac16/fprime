@@ -89,8 +89,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! endpoint the parameter database had saved
     void test_command_line_override();
 
-    //! A setter called before the load does not survive it
-    void test_configuration_before_load_is_lost();
+    //! And so does a setter called before the load, so the call works on either side of it
+    void test_configuration_before_load_survives();
 
     //! A parameter changed after configuration rebuilds the transport on the new value
     void test_parameter_update_reconfigures();
