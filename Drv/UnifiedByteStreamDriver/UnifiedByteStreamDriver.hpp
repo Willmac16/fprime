@@ -202,9 +202,10 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! applied, so every mutation happens on one thread at a time.
     mutable Os::Mutex m_configLock;
 
-    //! Telemetry leaves this component from two threads - the read task counts bytes in,
-    //! the sender counts bytes out - so the writes are serialized against each other.
-    Os::Mutex m_tlmLock;
+    //! Telemetry and events leave this component from two threads - the read task counts
+    //! bytes in and reports receive failures, the sender counts bytes out and reports send
+    //! failures - so those writes are serialized against each other.
+    mutable Os::Mutex m_downlinkLock;
     bool m_reconfigurePending = false;
     //! Set while parameterUpdated is tearing the link down. The teardown calls reach
     //! getSocketHandler from the caller's thread, and applying there would be the very

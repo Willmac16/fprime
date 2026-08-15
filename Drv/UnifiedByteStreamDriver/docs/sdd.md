@@ -230,6 +230,12 @@ value in force, so the configuration can be read back without a parameter dump.
 | `UnsupportedConfiguration` | warning high | Parameters describe a configuration this driver cannot serve |
 | `ConfigurationReloaded` | activity high | A parameter changed and the transport was rebuilt |
 | `PortOpened` | activity high | Transport opened and ready |
+| `NoBuffers` | warning high | No buffer available to receive into, throttled |
+| `SendError` | warning low | A transmission failed, throttled |
+| `ReceiveError` | warning low | A reception failed, throttled |
 
-Send and receive failures are logged through `Fw::Logger`, not evented, which is what
-`Drv::Udp` and `Drv::TcpClient` do.
+`Drv::Udp` and `Drv::TcpClient` have no events and report failures through `Fw::Logger`.
+This driver events them: a text log is much harder to see from the ground than a proper
+event, and a link failing is exactly what the ground needs to see. A send refused because
+no transport is configured is evented too, since a disabled driver silently swallowing
+sends is the failure hardest to spot.

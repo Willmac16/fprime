@@ -240,6 +240,8 @@ void UnifiedByteStreamDriverTester::test_unconfigured_driver_refuses_send() {
     U8 data[8] = {};
     Fw::Buffer buffer(data, sizeof(data));
     ASSERT_EQ(this->invoke_to_send(0, buffer), ByteStreamStatus::OTHER_ERROR);
+    // A refused send is an event, not just a line in a text log
+    ASSERT_EVENTS_SendError_SIZE(1);
 
     // Starting an unconfigured driver is a no-op rather than an error
     this->component.start();
@@ -676,8 +678,10 @@ void UnifiedByteStreamDriverTester::test_failed_allocation_returns_buffer() {
     this->m_starve_allocator = true;
     const Fw::Buffer buffer = this->component.getBuffer();
     ASSERT_FALSE(buffer.isValid()) << "A buffer that cannot be read into must not be passed on";
-    // The unusable buffer must have gone back to the allocator rather than been dropped
+    // The unusable buffer must have gone back to the allocator rather than been dropped,
+    // and the ground has to be able to see that it happened
     ASSERT_from_deallocate_SIZE(1);
+    ASSERT_EVENTS_NoBuffers_SIZE(1);
     ASSERT_EQ(this->m_outstanding_buffers.load(), 0) << "Allocation leaked";
 }
 

@@ -146,6 +146,7 @@ bool UnifiedByteStreamDriver::remoteReachable() const {
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::reject(const ByteStreamConfigError error) const {
+    Os::ScopeLock lock(this->m_downlinkLock);
     this->log_WARNING_HI_UnsupportedConfiguration(this->m_transportParam, error);
     return ByteStreamTransport::NONE;
 }
@@ -170,10 +171,12 @@ ByteStreamTransport UnifiedByteStreamDriver::applyConfiguration() {
     this->m_allocationSize = this->m_recvBufferSize;
 
     switch (this->m_transportParam.e) {
-        case ByteStreamTransport::NONE:
+        case ByteStreamTransport::NONE: {
+            Os::ScopeLock lock(this->m_downlinkLock);
             this->log_WARNING_HI_TransportNotConfigured();
             this->m_transport = ByteStreamTransport::NONE;
             break;
+        }
         case ByteStreamTransport::TCP_CLIENT:
             this->m_transport = this->configureTcpClient();
             break;
@@ -193,7 +196,10 @@ ByteStreamTransport UnifiedByteStreamDriver::applyConfiguration() {
 
     if (this->m_transport != ByteStreamTransport::NONE) {
         this->buildEndpoint();
-        this->log_ACTIVITY_HI_ConfigurationApplied(this->m_transport, this->m_endpoint);
+        {
+            Os::ScopeLock lock(this->m_downlinkLock);
+            this->log_ACTIVITY_HI_ConfigurationApplied(this->m_transport, this->m_endpoint);
+        }
     }
     this->reportConfiguration();
     return this->m_transport;
@@ -312,7 +318,7 @@ void UnifiedByteStreamDriver::buildEndpoint() {
 }
 
 void UnifiedByteStreamDriver::reportConfiguration() {
-    Os::ScopeLock lock(this->m_tlmLock);
+    Os::ScopeLock lock(this->m_downlinkLock);
     this->tlmWrite_Transport(this->m_transport);
     this->tlmWrite_LocalEndpoint(this->m_localEndpoint);
     this->tlmWrite_RemoteEndpoint(this->m_remoteEndpoint);
@@ -339,7 +345,10 @@ void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
     }
     if (not this->m_started) {
         (void)this->configure();
-        this->log_ACTIVITY_HI_ConfigurationReloaded();
+        {
+            Os::ScopeLock lock(this->m_downlinkLock);
+            this->log_ACTIVITY_HI_ConfigurationReloaded();
+        }
         return;
     }
 
@@ -453,6 +462,7 @@ IpSocket& UnifiedByteStreamDriver::getSocketHandler() {
             // A change that resolves to nothing must not take a working link down with it
             this->m_transport = previous;
         } else {
+            Os::ScopeLock downlink(this->m_downlinkLock);
             this->log_ACTIVITY_HI_ConfigurationReloaded();
         }
     }
@@ -485,7 +495,10 @@ Fw::Buffer UnifiedByteStreamDriver::getBuffer() {
         if (buffer.getData() != nullptr) {
             this->deallocate_out(0, buffer);
         }
-        Fw::Logger::log("[WARNING] %s: no buffer available to receive into\n", this->getObjName());
+        {
+            Os::ScopeLock lock(this->m_downlinkLock);
+            this->log_WARNING_HI_NoBuffers();
+        }
         return Fw::Buffer();
     }
     return buffer;
@@ -499,13 +512,15 @@ void UnifiedByteStreamDriver::sendBuffer(Fw::Buffer buffer, SocketIpStatus statu
         recvStatus = ByteStreamStatus::OP_OK;
         this->m_bytesReceived += buffer.getSize();
         {
-            Os::ScopeLock lock(this->m_tlmLock);
+            Os::ScopeLock lock(this->m_downlinkLock);
             this->tlmWrite_BytesRecv(this->m_bytesReceived);
         }
     } else if (status == SOCK_NO_DATA_AVAILABLE) {
         recvStatus = ByteStreamStatus::RECV_NO_DATA;
     } else {
         recvStatus = ByteStreamStatus::OTHER_ERROR;
+        Os::ScopeLock lock(this->m_downlinkLock);
+        this->log_WARNING_LO_ReceiveError(static_cast<I32>(status));
     }
     this->recv_out(0, buffer, recvStatus);
 }
@@ -519,9 +534,9 @@ void UnifiedByteStreamDriver::connected() {
         this->buildEndpoint();  // an ephemeral port only has a value now
         transport = this->m_transport;
     }
-    this->log_ACTIVITY_HI_PortOpened(transport, this->m_endpoint);
     {
-        Os::ScopeLock lock(this->m_tlmLock);
+        Os::ScopeLock lock(this->m_downlinkLock);
+        this->log_ACTIVITY_HI_PortOpened(transport, this->m_endpoint);
         this->tlmWrite_LocalPort(this->getLocalPort());
         this->tlmWrite_Connected(true);
     }
@@ -572,7 +587,7 @@ void UnifiedByteStreamDriver::readLoop() {
         SocketComponentHelper::readLoop();
     }
     {
-        Os::ScopeLock lock(this->m_tlmLock);
+        Os::ScopeLock lock(this->m_downlinkLock);
         this->tlmWrite_Connected(false);
     }
 }
@@ -583,6 +598,10 @@ void UnifiedByteStreamDriver::readLoop() {
 
 Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType portNum, Fw::Buffer& fwBuffer) {
     if (this->m_transport == ByteStreamTransport::NONE) {
+        // Worth an event of its own: a disabled driver silently swallowing sends is exactly
+        // the failure that is hard to see from the ground
+        Os::ScopeLock lock(this->m_downlinkLock);
+        this->log_WARNING_LO_SendError(static_cast<I32>(SOCK_NOT_STARTED));
         return ByteStreamStatus::OTHER_ERROR;
     }
     const FwSizeType size = fwBuffer.getSize();
@@ -592,7 +611,7 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
         case SOCK_SUCCESS:
             this->m_bytesSent += size;
             {
-                Os::ScopeLock lock(this->m_tlmLock);
+                Os::ScopeLock lock(this->m_downlinkLock);
                 this->tlmWrite_BytesSent(this->m_bytesSent);
             }
             returnStatus = ByteStreamStatus::OP_OK;
@@ -606,6 +625,10 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
         default:
             returnStatus = ByteStreamStatus::OTHER_ERROR;
             break;
+    }
+    if (returnStatus != ByteStreamStatus::OP_OK) {
+        Os::ScopeLock lock(this->m_downlinkLock);
+        this->log_WARNING_LO_SendError(static_cast<I32>(status));
     }
     return returnStatus;
 }

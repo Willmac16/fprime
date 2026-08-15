@@ -37,3 +37,28 @@ event PortOpened(
     severity activity high \
     id 4 \
     format "Byte stream driver opened {} on {}"
+
+@ The driver could not get a buffer to receive into
+event NoBuffers() \
+    severity warning high \
+    id 5 \
+    format "Byte stream driver has no buffer to receive into" \
+    throttle 20
+
+@ A transmission failed
+event SendError(
+                   error: I32 @< The Drv.SocketIpStatus value returned by the transport
+               ) \
+    severity warning low \
+    id 6 \
+    format "Byte stream driver failed to send with status {}" \
+    throttle 5
+
+@ A reception failed
+event ReceiveError(
+                      error: I32 @< The Drv.SocketIpStatus value returned by the transport
+                  ) \
+    severity warning low \
+    id 7 \
+    format "Byte stream driver failed to receive with status {}" \
+    throttle 5
