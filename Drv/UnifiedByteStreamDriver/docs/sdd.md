@@ -75,11 +75,9 @@ second copy of the values to keep in step — a `param save` saves what C++ set,
 
 Every parameter feeds one resolution step, so `parameterUpdated` does not care which
 parameter changed: it stages a resolution and decides when that resolution can happen.
-`parametersLoaded` calls `parameterUpdated` for each parameter in turn, which is why staging
-matters — resolving on each call would resolve once per parameter at startup. `start`
-resolves the staged set once instead.
+`start` performs that resolution once, over whatever the parameters hold by then.
 
-After that first resolution, a parameter that changes while nothing is running is applied
+After the first resolution, a parameter that changes while nothing is running is applied
 straight away. A parameter that changes while the read task is running is staged and the
 live connection is dropped: the task picks the change up through `getSocketHandler` on its
 way back round its reconnect path, and reopens on the new values. `ConfigurationReloaded`

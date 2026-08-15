@@ -301,15 +301,6 @@ void UnifiedByteStreamDriver::reportConfiguration() {
     this->tlmWrite_LocalPort(this->getLocalPort());
 }
 
-void UnifiedByteStreamDriver::parametersLoaded() {
-    this->parameterUpdated(PARAMID_TRANSPORT);
-    this->parameterUpdated(PARAMID_LOCAL_ENDPOINT);
-    this->parameterUpdated(PARAMID_REMOTE_ENDPOINT);
-    this->parameterUpdated(PARAMID_SERIAL_CONFIG);
-    this->parameterUpdated(PARAMID_RECV_BUFFER_SIZE);
-    this->parameterUpdated(PARAMID_SEND_TIMEOUT);
-}
-
 void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
     // Every parameter feeds the same one resolution, so which of them changed does not
     // matter here. All this does is decide when that resolution can happen.

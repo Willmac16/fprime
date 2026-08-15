@@ -130,8 +130,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! Every other configuration reads through the helper's loop unchanged.
     void readLoop() override;
 
-    void parametersLoaded() override;
-
     void parameterUpdated(FwPrmIdType id) override;
 
   private:
