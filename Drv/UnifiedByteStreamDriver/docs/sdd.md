@@ -251,8 +251,10 @@ parameter's own name, so the configuration can be read back without a parameter 
 The last three report conditions that persist and so repeat: an allocator that stays empty,
 a link that will not come up. A plain `throttle n` answers that by going quiet for good
 after `n` reports, which loses every later occurrence, so those three use FPP's
-`throttle 1 every 5` — one report, then silence until five seconds have passed, then
-reporting resumes on its own with no throttle-clear command needed.
+`throttle 1 every { seconds = 5, useconds = 0 }` — one report, then silence until the
+window has passed, then reporting resumes on its own with no throttle-clear command needed.
+The window is an `Fw.TimeInterval`; naming its members matters, because a bare `every 5`
+is a scalar broadcast into both of them and means five seconds *and* five microseconds.
 
 `Drv::Udp` and `Drv::TcpClient` have no events and report failures through `Fw::Logger`.
 This driver events them: a text log is much harder to see from the ground than a proper

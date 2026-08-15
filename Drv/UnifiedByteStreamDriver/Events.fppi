@@ -34,14 +34,15 @@ event PortOpened(
     format "Byte stream driver opened {} on {}"
 
 # The three below all report conditions that can repeat for as long as they last - an
-# allocator that stays empty, a link that stays down - so they throttle on elapsed time
-# rather than at a count that would stop reporting for good.
+# allocator that stays empty, a link that stays down - so they throttle on an elapsed time
+# window rather than at a count that would stop reporting for good. The window is an
+# Fw.TimeInterval, whose members are seconds and useconds.
 
 @ The driver could not get a buffer to receive into
 event NoBuffers() \
     severity warning high \
     format "Byte stream driver has no buffer to receive into" \
-    throttle 1 every 5
+    throttle 1 every { seconds = 5, useconds = 0 }
 
 @ A transmission failed
 event SendError(
@@ -49,7 +50,7 @@ event SendError(
                ) \
     severity warning low \
     format "Byte stream driver failed to send with status {}" \
-    throttle 1 every 5
+    throttle 1 every { seconds = 5, useconds = 0 }
 
 @ A reception failed
 event ReceiveError(
@@ -57,4 +58,4 @@ event ReceiveError(
                   ) \
     severity warning low \
     format "Byte stream driver failed to receive with status {}" \
-    throttle 1 every 5
+    throttle 1 every { seconds = 5, useconds = 0 }
