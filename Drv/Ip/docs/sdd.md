@@ -255,3 +255,11 @@ Further information can be read by referencing the following components.
 `Drv::TcpClientComponent`: a F´ component wrapper of the tcp client
 `Drv::TcpServerComponent`: a F´ component wrapper of the tcp server
 `Drv::UdpComponent`: a F´ component wrapper of the udp
+
+### TCP client local endpoint
+
+`Drv::TcpClientSocket::configureLocal` binds a local endpoint before connecting. A client
+normally takes whatever local endpoint the system gives it; binding first is how a caller
+picks the interface a connection leaves by, or a source port a firewall expects. Zero is the
+wildcard in each field as it is for any bind, and an entirely zero local endpoint means no
+bind is done, which is the behavior of a client that never calls this.

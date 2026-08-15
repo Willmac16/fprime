@@ -14,6 +14,8 @@
 #include <Fw/FPrimeBasicTypes.hpp>
 #include <Fw/Logger/Logger.hpp>
 #include <Fw/Types/Assert.hpp>
+#include <Fw/Types/StringUtils.hpp>
+#include <cstring>
 
 #ifdef TGT_OS_TYPE_VXWORKS
 #include <errnoLib.h>
@@ -44,6 +46,22 @@ TcpClientSocket::TcpClientSocket() : IpSocket() {}
 
 bool TcpClientSocket::isValidPort(U16 port) const {
     return port != 0;
+}
+
+SocketIpStatus TcpClientSocket::configureLocal(const char* const ipv4_address, const U16 port) {
+    FW_ASSERT(ipv4_address != nullptr);
+    if (Fw::StringUtils::string_length(ipv4_address, static_cast<FwSizeType>(SOCKET_MAX_IPV4_ADDRESS_SIZE)) >=
+        static_cast<FwSizeType>(SOCKET_MAX_IPV4_ADDRESS_SIZE)) {
+        return SOCK_INVALID_CALL;
+    }
+    (void)Fw::StringUtils::string_copy(this->m_local_address, ipv4_address, SOCKET_MAX_IPV4_ADDRESS_SIZE);
+    this->m_local_port = port;
+    return SOCK_SUCCESS;
+}
+
+bool TcpClientSocket::hasLocalEndpoint() const {
+    const bool addressed = (this->m_local_address[0] != '\0') && (::strcmp(this->m_local_address, "0.0.0.0") != 0);
+    return addressed || (this->m_local_port != 0);
 }
 
 SocketIpStatus TcpClientSocket::openProtocol(SocketDescriptor& socketDescriptor) {
@@ -80,6 +98,26 @@ SocketIpStatus TcpClientSocket::openProtocol(SocketDescriptor& socketDescriptor)
     if (IpSocket::setupTimeouts(socketFd) != SOCK_SUCCESS) {
         (void)::close(socketFd);
         return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
+    }
+
+    // Bind the local endpoint first when one was asked for, so the connection leaves by the
+    // interface and source port the caller chose
+    if (this->hasLocalEndpoint()) {
+        struct sockaddr_in local;
+        (void)::memset(&local, 0, sizeof(local));
+        local.sin_family = AF_INET;
+        local.sin_port = htons(this->m_local_port);
+#if defined TGT_OS_TYPE_VXWORKS || TGT_OS_TYPE_DARWIN
+        local.sin_len = static_cast<U8>(sizeof(struct sockaddr_in));
+#endif
+        if (IpSocket::addressToIp4(this->m_local_address, &local.sin_addr) != SOCK_SUCCESS) {
+            (void)::close(socketFd);
+            return SOCK_INVALID_IP_ADDRESS;
+        }
+        if (::bind(socketFd, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) < 0) {
+            (void)::close(socketFd);
+            return SOCK_FAILED_TO_BIND;
+        }
     }
 
     // TCP requires connect to the socket to allow for communication

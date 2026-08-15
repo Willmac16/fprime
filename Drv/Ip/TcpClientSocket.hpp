@@ -43,6 +43,22 @@ class TcpClientSocket : public IpSocket {
      */
     bool isValidPort(U16 port) const override;
 
+  public:
+    /**
+     * \brief bind a local endpoint before connecting
+     *
+     * A TCP client normally takes whatever local endpoint the system gives it. Binding
+     * first is how a caller picks the interface a connection leaves by, or a source port a
+     * firewall expects. Zero is the wildcard in each field, as it is for any bind, and an
+     * entirely zero local endpoint means no bind is done.
+     *
+     * \param ipv4_address: local IPv4 address (dotted-quad) to bind, "0.0.0.0" for any
+     * \param port: local port to bind, 0 for an ephemeral one
+     * \return SOCK_SUCCESS, or SOCK_INVALID_CALL when the address does not fit
+     */
+    SocketIpStatus configureLocal(const char* const ipv4_address, const U16 port);
+
+  protected:
     /**
      * \brief Tcp specific implementation for opening a client socket.
      * \param socketDescriptor: (output) descriptor opened. Only valid on SOCK_SUCCESS. Otherwise will be invalid
@@ -69,6 +85,13 @@ class TcpClientSocket : public IpSocket {
     FwSignedSizeType recvProtocol(const SocketDescriptor& socketDescriptor,
                                   U8* const data,
                                   const FwSizeType size) override;
+
+  private:
+    //! \brief whether a local endpoint was asked for at all
+    bool hasLocalEndpoint() const;
+
+    char m_local_address[SOCKET_MAX_IPV4_ADDRESS_SIZE] = {};  //!< local IPv4 address to bind, empty for none
+    U16 m_local_port = 0;                                     //!< local port to bind, 0 for ephemeral
 };
 }  // namespace Drv
 
