@@ -2,6 +2,7 @@
 // Main.cpp
 // ----------------------------------------------------------------------
 
+#include "AtomicTester.hpp"
 #include "RateLimiterTester.hpp"
 #include "TokenBucketTester.hpp"
 
@@ -43,6 +44,41 @@ TEST(TokenBucketTest, TestInitialSettings) {
 TEST(TokenBucketTest, TestReplenishAndEdgeCases) {
     Utils::TokenBucketTester tester;
     tester.testReplenishAndEdgeCases();
+}
+
+TEST(AtomicTest, TestBackendSelection) {
+    Utils::AtomicTester tester;
+    tester.testBackendSelection();
+}
+
+TEST(AtomicTest, TestLoadStore) {
+    Utils::AtomicTester tester;
+    tester.testLoadStore();
+}
+
+TEST(AtomicTest, TestExchangeAndCompareExchange) {
+    Utils::AtomicTester tester;
+    tester.testExchangeAndCompareExchange();
+}
+
+TEST(AtomicTest, TestArithmeticOperators) {
+    Utils::AtomicTester tester;
+    tester.testArithmeticOperators();
+}
+
+TEST(AtomicTest, TestBitwiseOperators) {
+    Utils::AtomicTester tester;
+    tester.testBitwiseOperators();
+}
+
+TEST(AtomicTest, TestNonLockFreeTypes) {
+    Utils::AtomicTester tester;
+    tester.testNonLockFreeTypes();
+}
+
+TEST(AtomicTest, TestConcurrentIncrement) {
+    Utils::AtomicTester tester;
+    tester.testConcurrentIncrement();
 }
 
 int main(int argc, char** argv) {
