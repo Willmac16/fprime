@@ -84,6 +84,11 @@ TEST(Configuration, ConfigurationTelemetry) {
     tester.test_configuration_telemetry();
 }
 
+TEST(Configuration, ParameterTelemetryTracksSetting) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_parameter_telemetry_tracks_setting();
+}
+
 TEST(Configuration, ParameterUpdateReconfigures) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_parameter_update_reconfigures();

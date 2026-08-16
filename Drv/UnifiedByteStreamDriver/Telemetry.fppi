@@ -14,23 +14,25 @@ telemetry Connected: bool
 @ system assigned. Zero when the transport binds no port of its own.
 telemetry LocalPort: U16
 
-# Each parameter in force, under the parameter's own name, so the configuration can be read
-# back from the ground without a parameter dump.
+# Each parameter as set, under the parameter's own name, so the configuration can be read
+# back from the ground without a parameter dump. These report the setting, not the transport
+# built from it, so a change shows up here as soon as it is made. ActiveTransport is what the
+# driver is actually running.
 
-@ TRANSPORT in force
+@ TRANSPORT as set
 telemetry TRANSPORT: Drv.ByteStreamTransport
 
-@ LOCAL_ENDPOINT in force
+@ LOCAL_ENDPOINT as set
 telemetry LOCAL_ENDPOINT: Drv.IpEndpoint
 
-@ REMOTE_ENDPOINT in force
+@ REMOTE_ENDPOINT as set
 telemetry REMOTE_ENDPOINT: Drv.IpEndpoint
 
-@ SERIAL_CONFIG in force
+@ SERIAL_CONFIG as set
 telemetry SERIAL_CONFIG: Drv.SerialConfig
 
-@ RECV_BUFFER_SIZE in force
+@ RECV_BUFFER_SIZE as set
 telemetry RECV_BUFFER_SIZE: FwSizeType
 
-@ SEND_TIMEOUT in force
+@ SEND_TIMEOUT as set
 telemetry SEND_TIMEOUT: Drv.SendTimeout

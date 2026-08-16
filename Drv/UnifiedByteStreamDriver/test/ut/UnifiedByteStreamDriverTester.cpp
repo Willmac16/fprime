@@ -98,9 +98,8 @@ SerialConfig UnifiedByteStreamDriverTester::serial(const char* const device) {
 }
 
 ByteStreamTransport UnifiedByteStreamDriverTester::loadAndConfigure() {
-    // loadParameters pulls every parameter over the prmGet port, one parameterUpdated call
-    // each, which stage the resolution that configure then does once - the same order
-    // start() puts them in
+    // loadParameters pulls every parameter over the prmGet port and configure resolves them,
+    // which is the order start() puts them in
     this->component.loadParameters();
     return this->component.configure();
 }
@@ -257,6 +256,17 @@ void UnifiedByteStreamDriverTester::test_configuration_telemetry() {
     ASSERT_TLM_REMOTE_ENDPOINT(0, loopback(50012));
     ASSERT_TLM_SERIAL_CONFIG(0, UnifiedByteStreamDriverTester::serial(TEST_DEVICE));
     ASSERT_TLM_RECV_BUFFER_SIZE(0, sizeof(this->m_data_storage));
+}
+
+void UnifiedByteStreamDriverTester::test_parameter_telemetry_tracks_setting() {
+    this->setParameters(ByteStreamTransport::UDP, loopback(50013), unset());
+
+    // Nothing has resolved yet, so this set is staged rather than applied. The channel
+    // reports the setting all the same - ActiveTransport is what reports the transport.
+    this->paramSend_TRANSPORT(0, 0);
+    ASSERT_TLM_TRANSPORT(0, ByteStreamTransport::UDP);
+    ASSERT_TLM_ActiveTransport_SIZE(0);
+    ASSERT_EQ(this->component.getTransport(), ByteStreamTransport::NONE);
 }
 
 void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {

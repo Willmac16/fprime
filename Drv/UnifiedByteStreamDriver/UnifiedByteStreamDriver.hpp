@@ -140,7 +140,10 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief build the endpoint description reported in events
     void buildEndpoint();
 
-    //! \brief write the resolved configuration out as telemetry
+    //! \brief write the parameter settings out as telemetry, applied or not yet
+    void reportParameters();
+
+    //! \brief write the parameter settings and the state resolved from them as telemetry
     void reportConfiguration();
 
     SocketIpStatus startupServer();

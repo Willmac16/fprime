@@ -82,6 +82,9 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Every parameter value is reported as telemetry when the configuration resolves
     void test_configuration_telemetry();
 
+    //! A parameter channel carries the setting itself, so it is current before the apply
+    void test_parameter_telemetry_tracks_setting();
+
     //! A parameter changed after configuration rebuilds the transport on the new value
     void test_parameter_update_reconfigures();
 

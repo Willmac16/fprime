@@ -251,15 +251,21 @@ void UnifiedByteStreamDriver::buildEndpoint() {
     }
 }
 
+void UnifiedByteStreamDriver::reportParameters() {
+    Fw::ParamValid valid = Fw::ParamValid::UNINIT;
+    Os::ScopeLock lock(this->m_downlink.lock);
+    this->tlmWrite_TRANSPORT(this->paramGet_TRANSPORT(valid));
+    this->tlmWrite_LOCAL_ENDPOINT(this->paramGet_LOCAL_ENDPOINT(valid));
+    this->tlmWrite_REMOTE_ENDPOINT(this->paramGet_REMOTE_ENDPOINT(valid));
+    this->tlmWrite_SERIAL_CONFIG(this->paramGet_SERIAL_CONFIG(valid));
+    this->tlmWrite_RECV_BUFFER_SIZE(this->paramGet_RECV_BUFFER_SIZE(valid));
+    this->tlmWrite_SEND_TIMEOUT(this->paramGet_SEND_TIMEOUT(valid));
+}
+
 void UnifiedByteStreamDriver::reportConfiguration() {
+    this->reportParameters();
     Os::ScopeLock lock(this->m_downlink.lock);
     this->tlmWrite_ActiveTransport(this->m_config.transport);
-    this->tlmWrite_TRANSPORT(this->m_config.transportParam);
-    this->tlmWrite_LOCAL_ENDPOINT(this->m_config.localEndpoint);
-    this->tlmWrite_REMOTE_ENDPOINT(this->m_config.remoteEndpoint);
-    this->tlmWrite_SERIAL_CONFIG(this->m_config.serial);
-    this->tlmWrite_RECV_BUFFER_SIZE(this->m_config.recvBufferSize);
-    this->tlmWrite_SEND_TIMEOUT(this->m_config.sendTimeout);
     this->tlmWrite_LocalPort(this->boundPort());
 }
 
@@ -273,6 +279,7 @@ void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
         if (not this->m_config.resolved) {
             // Parameters are still arriving, one call to here each. Resolving now would do
             // it once per parameter; start() resolves the set of them once instead.
+            this->reportParameters();
             return;
         }
         if (not this->m_config.started) {
@@ -286,6 +293,9 @@ void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
         this->m_config.suppressApply = true;
         live = this->m_config.transport;
     }
+    // The apply is the read task's to do, but the channels carry the parameter settings, so
+    // they are current the moment the setting is
+    this->reportParameters();
     // Drop the read task out of the helper's loop and back into ours, which is where a
     // listening socket is brought up and released. Without this the loop keeps running on
     // the transport it entered with, and a change into TCP_SERVER would never listen.

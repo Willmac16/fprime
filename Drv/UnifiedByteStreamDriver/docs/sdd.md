@@ -226,8 +226,10 @@ run at the wrong speed.
 `BytesSent` and `BytesRecv` match `Drv::LinuxUartDriver` in name and type, and are declared
 first so that channel id allocation gives them the same ids, meaning ground displays built
 for that driver work unchanged. `ActiveTransport`, `Connected` and `LocalPort` report what
-the link is doing. The remaining channels report each parameter value in force, under the
-parameter's own name, so the configuration can be read back without a parameter dump.
+the link is doing. The remaining channels report each parameter as set, under the parameter's
+own name, so the configuration can be read back without a parameter dump. Those track the
+setting rather than the transport built from it, so a change appears on them when it is made
+and `ActiveTransport` follows when the driver has rebuilt on it.
 
 ## Events
 
