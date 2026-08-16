@@ -121,8 +121,8 @@ bool UnifiedByteStreamDriver::parametersValid(const ParameterSet& params, ByteSt
                 error = ByteStreamConfigError::MISSING_REMOTE_ENDPOINT;
                 return false;
             }
-            // A client must reach its destination; UDP need only reach one it was given
-            [[fallthrough]];
+            // A client must reach its destination; UDP need only reach one it was given.
+            // fall through
         case ByteStreamTransport::UDP:
             if (UnifiedByteStreamDriver::remoteSpecified(params) &&
                 (not UnifiedByteStreamDriver::remoteComplete(params))) {
