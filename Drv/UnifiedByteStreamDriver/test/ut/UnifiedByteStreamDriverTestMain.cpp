@@ -69,9 +69,9 @@ TEST(Configuration, InvalidBufferSizeRejected) {
     tester.test_invalid_buffer_size_rejected();
 }
 
-TEST(Configuration, InvalidSendTimeoutRejected) {
+TEST(Configuration, OverflowingSendTimeoutNormalized) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_invalid_send_timeout_rejected();
+    tester.test_overflowing_send_timeout_normalized();
 }
 
 TEST(Configuration, UnconfiguredDriverRefusesSend) {
@@ -144,9 +144,9 @@ TEST(Nominal, BufferDeallocation) {
     tester.test_buffer_deallocation();
 }
 
-TEST(Nominal, FailedAllocationReturnsBuffer) {
+TEST(Nominal, FailedAllocationReported) {
     Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_failed_allocation_returns_buffer();
+    tester.test_failed_allocation_reported();
 }
 
 TEST(Nominal, RepeatedFailureThrottled) {

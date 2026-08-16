@@ -34,7 +34,7 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     // Configuration resolution tests
     // ----------------------------------------------------------------------
 
-    //! No transport selected leaves the driver disabled with a warning
+    //! No transport selected leaves the driver disabled
     void test_transport_none();
 
     //! TCP_CLIENT connects to the remote endpoint
@@ -73,8 +73,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! A zero receive buffer size is rejected before any transport is touched
     void test_invalid_buffer_size_rejected();
 
-    //! A send timeout of a full second or more in the microseconds field is rejected
-    void test_invalid_send_timeout_rejected();
+    //! A send timeout with whole seconds in its microseconds field is carried, not rejected
+    void test_overflowing_send_timeout_normalized();
 
     //! An unconfigured driver refuses to send rather than reaching for a transport
     void test_unconfigured_driver_refuses_send();
@@ -124,8 +124,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     //! Buffers handed back on recvReturnIn are deallocated
     void test_buffer_deallocation();
 
-    //! A buffer the allocator could not serve is not passed on, and not leaked
-    void test_failed_allocation_returns_buffer();
+    //! An allocation the allocator could not serve is reported, not passed on
+    void test_failed_allocation_reported();
 
     //! A failure that repeats is reported once per throttle window, not once and never again
     void test_repeated_failure_throttled();

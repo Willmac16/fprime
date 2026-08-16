@@ -19,10 +19,12 @@ module Drv {
         $port: U16
     } default { address = 0, $port = 0 }
 
-    @ Time allowed for a transmission before it gives up
+    @ Time allowed for a transmission before it gives up.
+    @
+    @ A microseconds field of 1000000 or more is carried into seconds when the timeout is
+    @ used, so 0s 1500000us is the same timeout as 1s 500000us.
     struct SendTimeout {
         seconds: U32
-        @ Must be less than 1000000: whole seconds belong in the seconds field
         microseconds: U32
     } default { seconds = 1, microseconds = 0 }
 
@@ -51,19 +53,43 @@ module Drv {
         NO_SERIAL_DEVICE = 2
         @ The receive buffer size is zero
         INVALID_BUFFER_SIZE = 3
-        @ The send timeout microseconds component is 1000000 or greater
-        INVALID_SEND_TIMEOUT = 4
         @ The requested baud rate is not supported by this platform
-        UNSUPPORTED_BAUD_RATE = 5
+        UNSUPPORTED_BAUD_RATE = 4
         @ The transport rejected the settings it was given
-        TRANSPORT_REJECTED_SETTINGS = 6
+        TRANSPORT_REJECTED_SETTINGS = 5
+    }
+
+    @ Drv::SocketIpStatus, which has no FPP declaration of its own, mirrored so the ground
+    @ sees a name rather than a number. UnifiedByteStreamDriver.cpp static_asserts the two
+    @ against each other, so a change to either fails the build.
+    enum SocketStatus: I32 {
+        SUCCESS = 0
+        FAILED_TO_GET_SOCKET = -1
+        FAILED_TO_GET_HOST_IP = -2
+        INVALID_IP_ADDRESS = -3
+        FAILED_TO_CONNECT = -4
+        FAILED_TO_SET_SOCKET_OPTIONS = -5
+        INTERRUPTED_TRY_AGAIN = -6
+        READ_ERROR = -7
+        DISCONNECTED = -8
+        FAILED_TO_BIND = -9
+        FAILED_TO_LISTEN = -10
+        FAILED_TO_ACCEPT = -11
+        SEND_ERROR = -13
+        NOT_STARTED = -14
+        FAILED_TO_READ_BACK_PORT = -15
+        NO_DATA_AVAILABLE = -16
+        ANOTHER_THREAD_OPENING = -17
+        AUTO_CONNECT_DISABLED = -18
+        INVALID_CALL = -19
     }
 
     @ Serial line baud rate.
     @
-    @ Rates above 230400 are not in POSIX and are not defined by every platform's termios.
-    @ macOS in particular defines none of them, so a rate this platform does not define is
-    @ rejected at configuration time rather than silently run at the wrong speed.
+    @ Linux termios speeds are small indices rather than rates, so every rate here has to be
+    @ mapped to its B constant, and a rate whose constant this platform does not define is
+    @ rejected rather than silently run at the wrong speed. BSD and macOS take the rate
+    @ itself, so they reach the higher rates without a B constant existing for them.
     enum SerialBaudRate: U32 {
         BAUD_9600 = 9600
         BAUD_19200 = 19200

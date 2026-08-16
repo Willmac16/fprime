@@ -54,11 +54,18 @@ is rejected.
 | `NONE`       | no                     | no: the driver stays disabled              |
 
 Rejected: `TCP_CLIENT` with no destination, a partly zero remote endpoint, `SERIAL` with no
-device, a zero `RECV_BUFFER_SIZE`, a `SEND_TIMEOUT` with a microseconds field of 1000000 or
-more, a baud rate this platform's termios does not define, and any settings a
-transport refuses. Each emits `UnsupportedConfiguration` and leaves the driver disabled
-rather than half-configured. A transport that refuses its settings is reported, not
-asserted on: these values come from an operator.
+device, a zero `RECV_BUFFER_SIZE`, a baud rate this platform's termios does not define, and
+any settings a transport refuses. Each emits `UnsupportedConfiguration` and leaves the
+driver disabled rather than half-configured. A transport that refuses its settings is
+reported, not asserted on: these values come from an operator. What can be judged from the
+parameters alone is judged before the first `configure` call, so a rejection cannot leave a
+running link's socket carrying values that were just refused.
+
+A `SEND_TIMEOUT` carrying whole seconds in its microseconds field is normalized rather than
+refused.
+
+`NONE` says nothing at configuration time. A driver with no transport is worth reporting
+when something tries to use it, which is what `SendWithoutTransport` is for.
 
 Parameters that do not apply to the selected transport are simply unused. They are not
 worth an event.
@@ -72,8 +79,8 @@ parameter changed: it stages a resolution and decides when that resolution can h
 After the first resolution, a parameter that changes while nothing is running is applied
 straight away. A parameter that changes while the read task is running is staged and the
 live connection is dropped: the task picks the change up through `getSocketHandler` on its
-way back round its reconnect path, and reopens on the new values. `ConfigurationReloaded`
-reports it either way.
+way back round its reconnect path, and reopens on the new values. `ConfigurationApplied`
+carries the new configuration either way.
 
 The transport itself can change that way too, listeners included. `readLoop` runs one pass
 per transport rather than one pass per task: it brings a listening socket up before handing
@@ -82,7 +89,7 @@ automatic open so that loop returns here instead of carrying on with the transpo
 started with.
 
 Each pass settles the configuration before anything binds to it. A listening socket is bound
-from the values `applyConfiguration` wrote into `Drv::TcpServerSocket`, so starting one while
+from the values `applyConfigurationLocked` wrote into `Drv::TcpServerSocket`, so starting one while
 a change is still staged would bind the previous endpoint — the pass applies what is pending
 first, and waits while a teardown on another thread means the values are not final yet.
 `Nominal.TransportSwitchWhileRunning` moves a live link onto a listener, and
@@ -93,9 +100,11 @@ Handing the change to the read task — rather than stopping and restarting it �
 twice over. `Drv::SocketComponentHelper` asserts its tasks have never been started, so it
 cannot be restarted at all. And the configuration and the sockets it configures belong to
 the read task while that task is alive, so applying a change on the commanding thread would
-be a data race. The parameters, everything resolved from them, and the lock that guards
-them are one `Configuration` struct for that reason; the downlink counters and the lock that
-serializes telemetry across the two threads are another.
+be a data race. Everything resolved from the parameters and the lock that guards it are one
+`Configuration` struct for that reason; the byte
+counters and the lock that keeps each counter and its channel together across the two
+threads are another. Events need no lock of their own — the generated base guards its own
+throttle state.
 
 Those two locks are taken configuration-first where both are needed, and neither is ever
 held across a call into `Drv::SocketComponentHelper`, which takes its own lock before
@@ -152,28 +161,9 @@ deployment that needs a command-line endpoint — `Ref`'s `-a` and `-p`, say —
 
 ### Compared with configuring `Drv::TcpClient`, `Drv::TcpServer` and `Drv::Udp`
 
-Those components are configured by a `configure` call in the `configComponents` phase, which
-is the only place their endpoint can come from, and by a `startSocketTask` call that both
-starts the read task and takes the socket parameters again. Here there is no configuration
-call at all: the values are parameters, and `start` takes none. Two things follow.
-
-- `configure` takes an address as a `const char*` to parse; a parameter is typed octets, so
-  an address that cannot be represented cannot be entered.
-- Those components hold the configuration privately, so it cannot be seen or changed from
-  the ground. Here every value is readable as telemetry and settable by command, at the cost
-  of not being settable from `argv`.
-
-### Standalone use
-
-The module is self-contained: everything it needs is in this directory, and it depends only
-on `Drv_Ip`, `Drv_ByteStreamDriverModel`, `Svc_Interfaces`, `Fw_Logger`, `Utils` and `Os` —
-all framework modules any project already has. To use it in a project rather than from upstream,
-copy this directory anywhere in the project and add `add_fprime_subdirectory` for it.
-
-Two follow-ups if you move it out of `Drv/`. Autocoded headers are included by their path
-from the build root, so the `<Drv/UnifiedByteStreamDriver/...Ac.hpp>` includes need the new
-path. And the FPP puts its types in `module Drv`; rename that module if you would rather not
-add to the framework's namespace.
+Those take their endpoint from a `configure` call in `configComponents`, and it is the only
+place it can come from. Here it is a parameter, so it is set from the database, readable as
+telemetry, and changeable at run time — address, port and transport alike.
 
 ### Parameters
 
@@ -207,9 +197,10 @@ shut — every tty — without clearing the descriptor the helper still holds an
 again. The stop path does the same work minus that shutdown, and the read returns on its
 own read timeout.
 
-Baud rates above 230400 are not in POSIX. Linux defines them; macOS does not, so a rate this
-platform's termios does not define is rejected at configuration time rather than silently
-run at the wrong speed.
+Linux `speed_t` values are small indices rather than rates, so each rate is mapped to its
+`B` constant and a rate whose constant this platform does not define is rejected at
+configuration time rather than silently run at the wrong speed. BSD and macOS `speed_t` is
+the rate itself, so there the rate is passed through and none is out of reach.
 
 ## Ports
 
@@ -225,26 +216,30 @@ run at the wrong speed.
 
 `BytesSent` and `BytesRecv` match `Drv::LinuxUartDriver` in name and type, and are declared
 first so that channel id allocation gives them the same ids, meaning ground displays built
-for that driver work unchanged. `ActiveTransport`, `Connected` and `LocalPort` report what
-the link is doing. The remaining channels report each parameter as set, under the parameter's
-own name, so the configuration can be read back without a parameter dump. Those track the
-setting rather than the transport built from it, so a change appears on them when it is made
-and `ActiveTransport` follows when the driver has rebuilt on it.
+for that driver work unchanged. `ActiveTransport`, `ActiveEndpoint`, `Connected` and
+`LocalPort` report what the link is doing, and the first two are written with the
+`ConfigurationApplied` that announces them.
+
+The remaining channels report each parameter as set, under the parameter's own name, so the
+configuration can be read back without a parameter dump. `parameterUpdated` writes the one
+channel whose parameter changed, and `parametersLoaded` calls it once per parameter because
+the generated base does not fan a load out that way itself. They therefore track the setting
+rather than the transport built from it: a change appears on them when it is made, and
+`ActiveTransport` follows when the driver has rebuilt on it.
 
 ## Events
 
 | Name | Severity | Description |
 |---|---|---|
 | `ConfigurationApplied` | activity high | Parameters resolved to a usable configuration |
-| `TransportNotConfigured` | warning high | `TRANSPORT` is `NONE` |
 | `UnsupportedConfiguration` | warning high | Parameters describe a configuration this driver cannot serve |
-| `ConfigurationReloaded` | activity high | A parameter changed and the transport was rebuilt |
 | `PortOpened` | activity high | Transport opened and ready |
+| `SendWithoutTransport` | warning high | Something was sent to a driver with no transport, throttled |
 | `NoBuffers` | warning high | No buffer available to receive into, throttled |
 | `SendError` | warning low | A transmission failed, throttled |
 | `ReceiveError` | warning low | A reception failed, throttled |
 
-The last three report conditions that persist and so repeat: an allocator that stays empty,
+The last four report conditions that persist and so repeat: an allocator that stays empty,
 a link that will not come up. A plain `throttle n` answers that by going quiet for good
 after `n` reports, which loses every later occurrence, so those three use FPP's
 `throttle 1 every { seconds = 5, useconds = 0 }` — one report, then silence until the

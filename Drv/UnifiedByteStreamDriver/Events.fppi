@@ -6,11 +6,6 @@ event ConfigurationApplied(
     severity activity high \
     format "Byte stream driver configured for {} on {}"
 
-@ TRANSPORT is NONE so the driver will neither send nor receive
-event TransportNotConfigured() \
-    severity warning high \
-    format "Byte stream driver has no transport selected and stays disabled"
-
 @ The parameters do not describe a configuration the driver can serve. The driver stays
 @ disabled rather than coming up half-configured.
 event UnsupportedConfiguration(
@@ -20,11 +15,6 @@ event UnsupportedConfiguration(
     severity warning high \
     format "Unsupported {} configuration: {}. Byte stream driver stays disabled"
 
-@ A parameter changed, so the transport was torn down and rebuilt on the new values
-event ConfigurationReloaded() \
-    severity activity high \
-    format "Byte stream driver parameter changed: transport rebuilt"
-
 @ The transport opened and the driver is ready to carry data
 event PortOpened(
                     transport: Drv.ByteStreamTransport @< The selected transport
@@ -33,10 +23,11 @@ event PortOpened(
     severity activity high \
     format "Byte stream driver opened {} on {}"
 
-# The three below all report conditions that can repeat for as long as they last - an
-# allocator that stays empty, a link that stays down - so they throttle on an elapsed time
-# window rather than at a count that would stop reporting for good. The window is an
-# Fw.TimeInterval, whose members are seconds and useconds.
+@ Something was sent to a driver with no transport selected, so it went nowhere
+event SendWithoutTransport() \
+    severity warning high \
+    format "Byte stream driver has no transport selected and cannot send" \
+    throttle 1 every { seconds = 5, useconds = 0 }
 
 @ The driver could not get a buffer to receive into
 event NoBuffers() \
@@ -46,16 +37,16 @@ event NoBuffers() \
 
 @ A transmission failed
 event SendError(
-                   error: I32 @< The Drv.SocketIpStatus value returned by the transport
+                   error: Drv.SocketStatus @< The status returned by the transport
                ) \
     severity warning low \
-    format "Byte stream driver failed to send with status {}" \
+    format "Byte stream driver failed to send: {}" \
     throttle 1 every { seconds = 5, useconds = 0 }
 
 @ A reception failed
 event ReceiveError(
-                      error: I32 @< The Drv.SocketIpStatus value returned by the transport
+                      error: Drv.SocketStatus @< The status returned by the transport
                   ) \
     severity warning low \
-    format "Byte stream driver failed to receive with status {}" \
+    format "Byte stream driver failed to receive: {}" \
     throttle 1 every { seconds = 5, useconds = 0 }

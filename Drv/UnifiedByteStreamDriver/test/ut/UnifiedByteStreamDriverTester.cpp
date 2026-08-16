@@ -131,15 +131,18 @@ bool UnifiedByteStreamDriverTester::wait_on_receive(U32 iterations) {
 void UnifiedByteStreamDriverTester::test_transport_none() {
     this->setParameters(ByteStreamTransport::NONE, unset(), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
-    ASSERT_EVENTS_TransportNotConfigured_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied_SIZE(0);
+    // Nothing is said at configuration time. A driver with no transport is only worth
+    // reporting when something tries to use it, which test_unconfigured_driver_refuses_send
+    // covers, so all this leaves behind is the channel.
+    ASSERT_EVENTS_SIZE(0);
+    ASSERT_TLM_ActiveTransport(0, ByteStreamTransport::NONE);
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_client_configuration() {
     this->setParameters(ByteStreamTransport::TCP_CLIENT, unset(), loopback(50000));
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP_CLIENT);
     ASSERT_EVENTS_ConfigurationApplied_SIZE(1);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_CLIENT, "connect 127.0.0.1:50000");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_CLIENT, "send 127.0.0.1:50000");
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
 }
 
@@ -153,7 +156,7 @@ void UnifiedByteStreamDriverTester::test_tcp_client_missing_remote_rejected() {
 void UnifiedByteStreamDriverTester::test_tcp_server_configuration() {
     this->setParameters(ByteStreamTransport::TCP_SERVER, loopback(50004), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP_SERVER);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_SERVER, "listen 127.0.0.1:50004");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_SERVER, "bind 127.0.0.1:50004");
 }
 
 void UnifiedByteStreamDriverTester::test_tcp_server_wildcard_listen() {
@@ -161,7 +164,7 @@ void UnifiedByteStreamDriverTester::test_tcp_server_wildcard_listen() {
     this->setParameters(ByteStreamTransport::TCP_SERVER, unset(), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP_SERVER);
     ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_SERVER, "listen 0.0.0.0:0");
+    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::TCP_SERVER, "bind 0.0.0.0:0");
 }
 
 void UnifiedByteStreamDriverTester::test_udp_bidirectional_configuration() {
@@ -219,14 +222,16 @@ void UnifiedByteStreamDriverTester::test_invalid_buffer_size_rejected() {
     ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::INVALID_BUFFER_SIZE);
 }
 
-void UnifiedByteStreamDriverTester::test_invalid_send_timeout_rejected() {
+void UnifiedByteStreamDriverTester::test_overflowing_send_timeout_normalized() {
     this->setParameters(ByteStreamTransport::UDP, loopback(50010), unset());
     SendTimeout timeout;
-    timeout.set_seconds(0);
-    timeout.set_microseconds(1000000);
+    timeout.set_seconds(1);
+    timeout.set_microseconds(2500000);
     this->paramSet_SEND_TIMEOUT(timeout, Fw::ParamValid::VALID);
-    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::NONE);
-    ASSERT_EVENTS_UnsupportedConfiguration(0, ByteStreamTransport::UDP, ByteStreamConfigError::INVALID_SEND_TIMEOUT);
+
+    // Whole seconds in the microseconds field are carried rather than refused
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_EVENTS_UnsupportedConfiguration_SIZE(0);
 }
 
 void UnifiedByteStreamDriverTester::test_unconfigured_driver_refuses_send() {
@@ -237,7 +242,7 @@ void UnifiedByteStreamDriverTester::test_unconfigured_driver_refuses_send() {
     Fw::Buffer buffer(data, sizeof(data));
     ASSERT_EQ(this->invoke_to_send(0, buffer), ByteStreamStatus::OTHER_ERROR);
     // A refused send is an event, not just a line in a text log
-    ASSERT_EVENTS_SendError_SIZE(1);
+    ASSERT_EVENTS_SendWithoutTransport_SIZE(1);
 
     // Starting an unconfigured driver is a no-op rather than an error
     this->component.start();
@@ -294,7 +299,7 @@ void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {
     this->paramSend_SERIAL_CONFIG(0, 0);
     this->paramSend_TRANSPORT(0, 0);
     ASSERT_EQ(this->component.getTransport(), ByteStreamTransport::SERIAL);
-    ASSERT_EVENTS_ConfigurationReloaded_SIZE(2);
+    ASSERT_EVENTS_ConfigurationApplied_SIZE(3);
 }
 
 void UnifiedByteStreamDriverTester::test_parameter_update_while_running() {
@@ -334,8 +339,8 @@ void UnifiedByteStreamDriverTester::test_parameter_update_while_running() {
     this->component.stop();
     ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
 
-    // The read task logs the reload, so read that history only once it is joined
-    ASSERT_EVENTS_ConfigurationReloaded_SIZE(1);
+    // The read task logs the new configuration, so read that history only once it is joined
+    ASSERT_EVENTS_ConfigurationApplied_SIZE(2);
 }
 
 void UnifiedByteStreamDriverTester::test_transport_switch_while_running() {
@@ -736,18 +741,16 @@ void UnifiedByteStreamDriverTester::test_buffer_deallocation() {
     ASSERT_EQ(this->m_outstanding_buffers.load(), 0);
 }
 
-void UnifiedByteStreamDriverTester::test_failed_allocation_returns_buffer() {
+void UnifiedByteStreamDriverTester::test_failed_allocation_reported() {
     this->setParameters(ByteStreamTransport::UDP, loopback(50015), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
 
-    // The allocator answers with memory it cannot size, which is not a buffer the driver
-    // can read into but is still memory the allocator is owed back
     this->m_starve_allocator = true;
     const Fw::Buffer buffer = this->component.getBuffer();
-    ASSERT_FALSE(buffer.isValid()) << "A buffer that cannot be read into must not be passed on";
-    // The unusable buffer must have gone back to the allocator rather than been dropped,
-    // and the ground has to be able to see that it happened
-    ASSERT_from_deallocate_SIZE(1);
+    ASSERT_FALSE(buffer.isValid());
+    // The allocation the allocator refused is its own to account for, so nothing goes back
+    // to it. What the driver owes is telling the ground it happened.
+    ASSERT_from_deallocate_SIZE(0);
     ASSERT_EVENTS_NoBuffers_SIZE(1);
     ASSERT_EQ(this->m_outstanding_buffers.load(), 0) << "Allocation leaked";
 }
@@ -816,11 +819,11 @@ void UnifiedByteStreamDriverTester::from_recv_handler(const FwIndexType portNum,
 
 Fw::Buffer UnifiedByteStreamDriverTester::from_allocate_handler(const FwIndexType portNum, FwSizeType size) {
     this->pushFromPortEntry_allocate(size);
-    this->m_outstanding_buffers++;
     if (this->m_starve_allocator) {
-        // Memory the driver cannot use, but memory all the same
-        return Fw::Buffer(new U8[1], 0);
+        // What Svc::BufferManager answers with when it cannot serve: nothing owed back
+        return Fw::Buffer();
     }
+    this->m_outstanding_buffers++;
     return Fw::Buffer(new U8[size], size);
 }
 

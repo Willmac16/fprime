@@ -100,53 +100,69 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     void parameterUpdated(FwPrmIdType id) override;
 
+    //! \brief fan a load out into parameterUpdated, one call per parameter
+    //!
+    //! The base does not do it, so without this a loaded value reaches no channel until
+    //! something sets one.
+    void parametersLoaded() override;
+
   private:
     Drv::ByteStreamStatus send_handler(const FwIndexType portNum, Fw::Buffer& fwBuffer) override;
 
     void recvReturnIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) override;
 
-    //! \brief resolve the configuration; call with the configuration lock held
-    ByteStreamTransport applyConfiguration();
+    //! Every parameter, read together so that what is validated is what is configured.
+    struct ParameterSet {
+        ByteStreamTransport transport = ByteStreamTransport::NONE;
+        IpEndpoint localEndpoint;
+        IpEndpoint remoteEndpoint;
+        SerialConfig serial;
+        FwSizeType recvBufferSize = 1024;
+        SendTimeout sendTimeout;
+    };
 
-    //! \brief copy every parameter out of the component base; call with the lock held
-    void snapshotParameters();
+    //! \brief read every parameter out of the component base
+    ParameterSet snapshotParameters();
+
+    //! \brief whether a paramGet_ validity means the value returned is a setting
+    static bool parameterValid(const Fw::ParamValid valid);
 
     //! \brief whether the parameters describe a configuration a transport could serve
-    //! \return false and sets error when they do not; call with the configuration lock held
-    bool parametersValid(ByteStreamConfigError& error) const;
+    //! \return false and sets error when they do not
+    bool parametersValid(const ParameterSet& params, ByteStreamConfigError& error) const;
+
+    //! \brief resolve the configuration; call with the configuration lock held
+    ByteStreamTransport applyConfigurationLocked();
 
     //! \return NONE when the combination was rejected
-    ByteStreamTransport configureTcpClient();
-    ByteStreamTransport configureTcpServer();
-    ByteStreamTransport configureUdp();
-    ByteStreamTransport configureSerial();
+    ByteStreamTransport configureTcpClient(const ParameterSet& params);
+    ByteStreamTransport configureTcpServer(const ParameterSet& params);
+    ByteStreamTransport configureUdp(const ParameterSet& params);
+    ByteStreamTransport configureSerial(const ParameterSet& params);
 
     //! \brief report a rejected configuration
     //! \return NONE, so callers can return this directly
-    ByteStreamTransport reject(const ByteStreamConfigError error) const;
+    ByteStreamTransport reject(const ParameterSet& params, const ByteStreamConfigError error) const;
 
     //! \brief whether an endpoint's address is anything other than 0.0.0.0
     static bool hasAddress(const IpEndpoint& endpoint);
 
-    //! \brief whether a destination was supplied at all
-    bool hasRemote() const;
+    //! \brief whether any part of a destination was supplied
+    static bool remoteSpecified(const ParameterSet& params);
 
     //! \brief whether the destination supplied is one a transport could reach
-    bool remoteReachable() const;
+    static bool remoteComplete(const ParameterSet& params);
 
     //! \brief render an endpoint's octets as the dotted-quad string the sockets take
     static void formatAddress(const IpEndpoint& endpoint, Fw::String& address);
 
-    //! \brief build the endpoint description reported in events
-    void buildEndpoint();
+    //! \brief render an endpoint as the "address:port" the events and channel carry
+    static void formatEndpoint(const IpEndpoint& endpoint, const U16 port, Fw::String& text);
 
-    //! \brief whether a paramGet_ validity means the value returned is a setting
-    static bool parameterSet(const Fw::ParamValid valid);
+    //! \brief build the endpoint description reported in events; call with the lock held
+    void buildEndpoint(const ParameterSet& params);
 
-    //! \brief write the parameter settings out as telemetry, applied or not yet
-    void reportParameters();
-
-    //! \brief write the parameter settings and the state resolved from them as telemetry
+    //! \brief write the resolved configuration out as telemetry
     void reportConfiguration();
 
     SocketIpStatus startupServer();
@@ -169,21 +185,16 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     UdpSocket m_udp;
     SerialStream m_serial;
 
-    //! The parameters and everything resolved from them, with the lock that guards them.
+    //! The resolved configuration, with the lock that guards it.
     //!
     //! The read task reaches this through getSocketHandler, which is where a staged change
     //! is applied, so every mutation of the sockets happens on one thread at a time.
     struct Configuration {
-        Os::Mutex lock;
+        mutable Os::Mutex lock;
 
-        // The parameter values this resolution was built from. The component base holds the
-        // authoritative copies; snapshotParameters takes these from it.
-        ByteStreamTransport transportParam = ByteStreamTransport::NONE;
-        IpEndpoint localEndpoint;
-        IpEndpoint remoteEndpoint;
-        SerialConfig serial;
-        FwSizeType recvBufferSize = 1024;
-        SendTimeout sendTimeout;
+        //! What this resolution was built from, kept so the endpoint description can be
+        //! rebuilt once an ephemeral port has a value.
+        ParameterSet params;
 
         ByteStreamTransport transport = ByteStreamTransport::NONE;  //!< resolved transport
         Fw::String endpoint;                                        //!< endpoint description in events
@@ -196,18 +207,19 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
         //! cross-thread write the hand-off exists to avoid.
         bool suppressApply = false;
     };
-    mutable Configuration m_config;
+    Configuration m_config;
 
-    //! Everything that leaves this component downwards, with the lock that guards it.
+    //! What this component writes downwards, with the lock that serializes it.
     //!
-    //! Telemetry is written from two threads - the read task counts bytes in, the sender
-    //! counts bytes out - so those writes and the counters behind them are serialized.
+    //! The read task and the sender both write telemetry, so the lock covers every channel
+    //! write and holds each counter together with the channel it feeds. Events need no part
+    //! of it: the generated base guards its own throttle state.
     struct Downlink {
         Os::Mutex lock;
         FwSizeType bytesSent = 0;
         FwSizeType bytesReceived = 0;
     };
-    mutable Downlink m_downlink;
+    Downlink m_downlink;
 
     //! \brief whether the read task is running
     bool isStarted() const;

@@ -1,12 +1,11 @@
-@ Set from the parameter database at load, and by command from the ground.
-
 @ Transport used by this driver. NONE leaves the driver disabled.
 param TRANSPORT: Drv.ByteStreamTransport \
     default Drv.ByteStreamTransport.NONE
 
-@ Local endpoint to bind, used by TCP_SERVER and UDP. An address of 0.0.0.0 binds every
-@ interface and a port of zero takes an ephemeral port, so the all-zero default binds every
-@ interface on an ephemeral port.
+@ Local endpoint to bind, used by TCP_SERVER and UDP. One socket is bound, so an address of
+@ 0.0.0.0 takes the given port on every interface, and a port of zero takes one ephemeral
+@ port for that bind. The all-zero default is therefore every interface on one ephemeral
+@ port, readable afterwards as the LocalPort channel.
 param LOCAL_ENDPOINT: Drv.IpEndpoint \
     default { address = 0, $port = 0 }
 

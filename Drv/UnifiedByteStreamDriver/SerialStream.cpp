@@ -16,10 +16,12 @@ namespace Drv {
 
 namespace {
 
-//! \brief map a baud rate to its termios speed constant
+//! \brief map a baud rate to its termios speed
 //!
-//! Rates above 230400 are not in POSIX. Linux defines them, macOS does not, so those cases
-//! only exist where the platform defines the constant and unmapped rates are unsupported.
+//! Linux speed_t values are small indices rather than rates, so every rate needs its B
+//! constant and a rate whose constant this platform does not define is unsupported. BSD and
+//! macOS speed_t is the rate itself, so it needs no table and has no unsupported rate.
+#ifdef __linux__
 bool baudToSpeed(const SerialBaudRate baud, speed_t& speed) {
     bool supported = true;
     switch (baud.e) {
@@ -57,6 +59,12 @@ bool baudToSpeed(const SerialBaudRate baud, speed_t& speed) {
     }
     return supported;
 }
+#else
+bool baudToSpeed(const SerialBaudRate baud, speed_t& speed) {
+    speed = static_cast<speed_t>(baud.e);
+    return true;
+}
+#endif
 
 }  // namespace
 
