@@ -101,16 +101,21 @@ twice over. `Drv::SocketComponentHelper` asserts its tasks have never been start
 cannot be restarted at all. And the configuration and the sockets it configures belong to
 the read task while that task is alive, so applying a change on the commanding thread would
 be a data race. Everything resolved from the parameters and the lock that guards it are one
-`Configuration` struct for that reason; the byte
-counters and the lock that keeps each counter and its channel together across the two
-threads are another. Events need no lock of their own — the generated base guards its own
-throttle state.
+`Configuration` struct for that reason, and it is the component's only lock.
 
-Those two locks are taken configuration-first where both are needed, and neither is ever
-held across a call into `Drv::SocketComponentHelper`, which takes its own lock before
-calling back into `getSocketHandler`. That is why `Connected` is written where the
-connection state changes rather than alongside the rest of the configuration telemetry:
-asking the helper whether it is open would take the helper's lock in the opposite order.
+Nothing else here needs one. The byte counters are `std::atomic`, incremented on the thread
+that counted the bytes. Channel writes are not serialized because a telemetry receiver
+already guards its own state — `Svc::TlmChan` takes `TlmRecv` on a guarded port,
+`Svc::TlmPacketizer` holds its own lock around the copy — and neither are events, because
+the generated base takes `m_eventLock` around its throttle state. The unit test harness is
+the exception: the generated histories are not thread safe, so the tester puts its own lock
+in front of `dispatchTlm` and `dispatchEvents`, which is where that concern belongs.
+
+The configuration lock is never held across a call into `Drv::SocketComponentHelper`, which
+takes its own lock before calling back into `getSocketHandler`. That is why `Connected` is
+written where the connection state changes rather than alongside the rest of the
+configuration telemetry: asking the helper whether it is open would take the helper's lock
+in the opposite order.
 
 A change that resolves to nothing does not take a working link down: the rejection is
 reported and the link carries on as it was.

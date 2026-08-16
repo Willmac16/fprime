@@ -138,6 +138,23 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     // Handler overrides for typed from ports
     // ----------------------------------------------------------------------
 
+    //! The generated histories are not thread safe and the driver does not serialize what
+    //! it writes - a telemetry receiver guards its own state, so there is nothing in flight
+    //! for it to serialize. These stand in front of the generated dispatchers so that a
+    //! channel or event written from the read task cannot tear the history a test reads.
+    static void from_tlmOut_serialized(Fw::PassiveComponentBase* const callComp,
+                                       FwIndexType portNum,
+                                       FwChanIdType id,
+                                       Fw::Time& timeTag,
+                                       Fw::TlmBuffer& val);
+
+    static void from_logOut_serialized(Fw::PassiveComponentBase* const callComp,
+                                       FwIndexType portNum,
+                                       FwEventIdType id,
+                                       Fw::Time& timeTag,
+                                       const Fw::LogSeverity& severity,
+                                       Fw::LogBuffer& args);
+
     void from_recv_handler(const FwIndexType portNum,
                            Fw::Buffer& recvBuffer,
                            const ByteStreamStatus& recvStatus) override;
@@ -195,6 +212,8 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     Fw::Buffer m_data_buffer;
     //! Protects m_data_buffer, which is shared with the receive thread's handler
     Os::Mutex m_buffer_lock;
+    //! Protects the generated event and telemetry histories
+    Os::Mutex m_history_lock;
     U8 m_data_storage[SEND_DATA_BUFFER_SIZE];
     //! Set by the receive handler once a matching buffer has arrived
     std::atomic<bool> m_received;

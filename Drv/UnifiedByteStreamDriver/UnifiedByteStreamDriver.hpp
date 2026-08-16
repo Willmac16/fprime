@@ -15,6 +15,7 @@
 #include <Fw/Types/String.hpp>
 #include <Os/Mutex.hpp>
 #include <Os/Task.hpp>
+#include <atomic>
 #include "SerialStream.hpp"
 
 namespace Drv {
@@ -209,17 +210,11 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     };
     Configuration m_config;
 
-    //! What this component writes downwards, with the lock that serializes it.
-    //!
-    //! The read task and the sender both write telemetry, so the lock covers every channel
-    //! write and holds each counter together with the channel it feeds. Events need no part
-    //! of it: the generated base guards its own throttle state.
-    struct Downlink {
-        Os::Mutex lock;
-        FwSizeType bytesSent = 0;
-        FwSizeType bytesReceived = 0;
-    };
-    Downlink m_downlink;
+    //! Counted on the sender and the read task respectively, and written to their channels
+    //! from there. Nothing downstream needs this component to serialize either one: a
+    //! telemetry receiver guards its own state, as does the generated base's throttle.
+    std::atomic<FwSizeType> m_bytesSent{0};
+    std::atomic<FwSizeType> m_bytesReceived{0};
 
     //! \brief whether the read task is running
     bool isStarted() const;

@@ -283,7 +283,6 @@ bool UnifiedByteStreamDriver::parameterValid(const Fw::ParamValid valid) {
 }
 
 void UnifiedByteStreamDriver::reportConfiguration() {
-    Os::ScopeLock lock(this->m_downlink.lock);
     this->tlmWrite_ActiveTransport(this->m_config.transport);
     this->tlmWrite_ActiveEndpoint(this->m_config.endpoint);
     this->tlmWrite_LocalPort(this->boundPort());
@@ -304,42 +303,36 @@ void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
         case PARAMID_TRANSPORT: {
             const ByteStreamTransport value = this->paramGet_TRANSPORT(valid);
             FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            Os::ScopeLock lock(this->m_downlink.lock);
             this->tlmWrite_TRANSPORT(value);
             break;
         }
         case PARAMID_LOCAL_ENDPOINT: {
             const IpEndpoint value = this->paramGet_LOCAL_ENDPOINT(valid);
             FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            Os::ScopeLock lock(this->m_downlink.lock);
             this->tlmWrite_LOCAL_ENDPOINT(value);
             break;
         }
         case PARAMID_REMOTE_ENDPOINT: {
             const IpEndpoint value = this->paramGet_REMOTE_ENDPOINT(valid);
             FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            Os::ScopeLock lock(this->m_downlink.lock);
             this->tlmWrite_REMOTE_ENDPOINT(value);
             break;
         }
         case PARAMID_SERIAL_CONFIG: {
             const SerialConfig value = this->paramGet_SERIAL_CONFIG(valid);
             FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            Os::ScopeLock lock(this->m_downlink.lock);
             this->tlmWrite_SERIAL_CONFIG(value);
             break;
         }
         case PARAMID_RECV_BUFFER_SIZE: {
             const FwSizeType value = this->paramGet_RECV_BUFFER_SIZE(valid);
             FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            Os::ScopeLock lock(this->m_downlink.lock);
             this->tlmWrite_RECV_BUFFER_SIZE(value);
             break;
         }
         case PARAMID_SEND_TIMEOUT: {
             const SendTimeout value = this->paramGet_SEND_TIMEOUT(valid);
             FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            Os::ScopeLock lock(this->m_downlink.lock);
             this->tlmWrite_SEND_TIMEOUT(value);
             break;
         }
@@ -532,9 +525,7 @@ void UnifiedByteStreamDriver::sendBuffer(Fw::Buffer buffer, SocketIpStatus statu
     Drv::ByteStreamStatus recvStatus = ByteStreamStatus::OTHER_ERROR;
     if (status == SOCK_SUCCESS) {
         recvStatus = ByteStreamStatus::OP_OK;
-        Os::ScopeLock lock(this->m_downlink.lock);
-        this->m_downlink.bytesReceived += buffer.getSize();
-        this->tlmWrite_BytesRecv(this->m_downlink.bytesReceived);
+        this->tlmWrite_BytesRecv(this->m_bytesReceived += buffer.getSize());
     } else if (status == SOCK_NO_DATA_AVAILABLE) {
         recvStatus = ByteStreamStatus::RECV_NO_DATA;
     } else {
@@ -558,11 +549,8 @@ void UnifiedByteStreamDriver::connected() {
         localPort = this->boundPort();
     }
     this->log_ACTIVITY_HI_PortOpened(transport, endpoint);
-    {
-        Os::ScopeLock lock(this->m_downlink.lock);
-        this->tlmWrite_LocalPort(localPort);
-        this->tlmWrite_Connected(true);
-    }
+    this->tlmWrite_LocalPort(localPort);
+    this->tlmWrite_Connected(true);
     if (this->isConnected_ready_OutputPort(0)) {
         this->ready_out(0);
     }
@@ -622,7 +610,6 @@ void UnifiedByteStreamDriver::readLoop() {
         SocketComponentHelper::readLoop();
         this->releaseListener();
     }
-    Os::ScopeLock lock(this->m_downlink.lock);
     this->tlmWrite_Connected(false);
 }
 
@@ -639,13 +626,10 @@ Drv::ByteStreamStatus UnifiedByteStreamDriver::send_handler(const FwIndexType po
     const Drv::SocketIpStatus status = this->send(fwBuffer.getData(), size);
     Drv::ByteStreamStatus returnStatus = ByteStreamStatus::OTHER_ERROR;
     switch (status) {
-        case SOCK_SUCCESS: {
-            Os::ScopeLock lock(this->m_downlink.lock);
-            this->m_downlink.bytesSent += size;
-            this->tlmWrite_BytesSent(this->m_downlink.bytesSent);
+        case SOCK_SUCCESS:
+            this->tlmWrite_BytesSent(this->m_bytesSent += size);
             returnStatus = ByteStreamStatus::OP_OK;
             break;
-        }
         // The read task owns reopening the transport, so the caller retries rather than
         // reopening it itself
         case SOCK_INTERRUPTED_TRY_AGAIN:

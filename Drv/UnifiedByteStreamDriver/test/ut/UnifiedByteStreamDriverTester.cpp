@@ -47,6 +47,8 @@ UnifiedByteStreamDriverTester::UnifiedByteStreamDriverTester()
       m_outstanding_buffers(0) {
     this->initComponents();
     this->connectPorts();
+    this->get_from_tlmOut(0)->addCallComp(this, UnifiedByteStreamDriverTester::from_tlmOut_serialized);
+    this->get_from_logOut(0)->addCallComp(this, UnifiedByteStreamDriverTester::from_logOut_serialized);
     (void)::memset(this->m_data_storage, 0, sizeof(this->m_data_storage));
 }
 
@@ -55,6 +57,27 @@ UnifiedByteStreamDriverTester::~UnifiedByteStreamDriverTester() {}
 // ----------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------
+
+void UnifiedByteStreamDriverTester::from_tlmOut_serialized(Fw::PassiveComponentBase* const callComp,
+                                                           FwIndexType portNum,
+                                                           FwChanIdType id,
+                                                           Fw::Time& timeTag,
+                                                           Fw::TlmBuffer& val) {
+    UnifiedByteStreamDriverTester* const tester = static_cast<UnifiedByteStreamDriverTester*>(callComp);
+    Os::ScopeLock lock(tester->m_history_lock);
+    tester->dispatchTlm(id, timeTag, val);
+}
+
+void UnifiedByteStreamDriverTester::from_logOut_serialized(Fw::PassiveComponentBase* const callComp,
+                                                           FwIndexType portNum,
+                                                           FwEventIdType id,
+                                                           Fw::Time& timeTag,
+                                                           const Fw::LogSeverity& severity,
+                                                           Fw::LogBuffer& args) {
+    UnifiedByteStreamDriverTester* const tester = static_cast<UnifiedByteStreamDriverTester*>(callComp);
+    Os::ScopeLock lock(tester->m_history_lock);
+    tester->dispatchEvents(id, timeTag, severity, args);
+}
 
 IpEndpoint UnifiedByteStreamDriverTester::loopback(const U16 port) {
     const U8 address[4] = {127, 0, 0, 1};
