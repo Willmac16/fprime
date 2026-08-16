@@ -140,6 +140,9 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief build the endpoint description reported in events
     void buildEndpoint();
 
+    //! \brief whether a paramGet_ validity means the value returned is a setting
+    static bool parameterSet(const Fw::ParamValid valid);
+
     //! \brief write the parameter settings out as telemetry, applied or not yet
     void reportParameters();
 

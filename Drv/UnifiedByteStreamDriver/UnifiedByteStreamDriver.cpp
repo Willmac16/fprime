@@ -251,15 +251,40 @@ void UnifiedByteStreamDriver::buildEndpoint() {
     }
 }
 
+bool UnifiedByteStreamDriver::parameterSet(const Fw::ParamValid valid) {
+    return (valid == Fw::ParamValid::VALID) || (valid == Fw::ParamValid::DEFAULT);
+}
+
 void UnifiedByteStreamDriver::reportParameters() {
+    // paramGet_ hands back a value-initialized zero for a parameter it has nothing for, which
+    // is not a setting and does not belong on a channel
     Fw::ParamValid valid = Fw::ParamValid::UNINIT;
     Os::ScopeLock lock(this->m_downlink.lock);
-    this->tlmWrite_TRANSPORT(this->paramGet_TRANSPORT(valid));
-    this->tlmWrite_LOCAL_ENDPOINT(this->paramGet_LOCAL_ENDPOINT(valid));
-    this->tlmWrite_REMOTE_ENDPOINT(this->paramGet_REMOTE_ENDPOINT(valid));
-    this->tlmWrite_SERIAL_CONFIG(this->paramGet_SERIAL_CONFIG(valid));
-    this->tlmWrite_RECV_BUFFER_SIZE(this->paramGet_RECV_BUFFER_SIZE(valid));
-    this->tlmWrite_SEND_TIMEOUT(this->paramGet_SEND_TIMEOUT(valid));
+
+    const ByteStreamTransport transport = this->paramGet_TRANSPORT(valid);
+    if (UnifiedByteStreamDriver::parameterSet(valid)) {
+        this->tlmWrite_TRANSPORT(transport);
+    }
+    const IpEndpoint localEndpoint = this->paramGet_LOCAL_ENDPOINT(valid);
+    if (UnifiedByteStreamDriver::parameterSet(valid)) {
+        this->tlmWrite_LOCAL_ENDPOINT(localEndpoint);
+    }
+    const IpEndpoint remoteEndpoint = this->paramGet_REMOTE_ENDPOINT(valid);
+    if (UnifiedByteStreamDriver::parameterSet(valid)) {
+        this->tlmWrite_REMOTE_ENDPOINT(remoteEndpoint);
+    }
+    const SerialConfig serial = this->paramGet_SERIAL_CONFIG(valid);
+    if (UnifiedByteStreamDriver::parameterSet(valid)) {
+        this->tlmWrite_SERIAL_CONFIG(serial);
+    }
+    const FwSizeType recvBufferSize = this->paramGet_RECV_BUFFER_SIZE(valid);
+    if (UnifiedByteStreamDriver::parameterSet(valid)) {
+        this->tlmWrite_RECV_BUFFER_SIZE(recvBufferSize);
+    }
+    const SendTimeout sendTimeout = this->paramGet_SEND_TIMEOUT(valid);
+    if (UnifiedByteStreamDriver::parameterSet(valid)) {
+        this->tlmWrite_SEND_TIMEOUT(sendTimeout);
+    }
 }
 
 void UnifiedByteStreamDriver::reportConfiguration() {

@@ -267,6 +267,20 @@ void UnifiedByteStreamDriverTester::test_parameter_telemetry_tracks_setting() {
     ASSERT_TLM_TRANSPORT(0, ByteStreamTransport::UDP);
     ASSERT_TLM_ActiveTransport_SIZE(0);
     ASSERT_EQ(this->component.getTransport(), ByteStreamTransport::NONE);
+
+    // Nothing has been set on the others, so they report nothing rather than the zero
+    // paramGet_ returns for a parameter it has no value for
+    ASSERT_TLM_LOCAL_ENDPOINT_SIZE(0);
+    ASSERT_TLM_REMOTE_ENDPOINT_SIZE(0);
+    ASSERT_TLM_SERIAL_CONFIG_SIZE(0);
+    ASSERT_TLM_RECV_BUFFER_SIZE_SIZE(0);
+    ASSERT_TLM_SEND_TIMEOUT_SIZE(0);
+
+    // The load gives every one of them a value, so every one of them reports
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    ASSERT_TLM_LOCAL_ENDPOINT_SIZE(1);
+    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50013));
+    ASSERT_TLM_SEND_TIMEOUT_SIZE(1);
 }
 
 void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {
