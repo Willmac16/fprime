@@ -13,6 +13,7 @@ register_fprime_module(
     "${CMAKE_CURRENT_LIST_DIR}/CRCChecker.cpp"
   HEADERS
     "${CMAKE_CURRENT_LIST_DIR}/Atomic.hpp"
+    "${CMAKE_CURRENT_LIST_DIR}/CacheLinePadded.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/CRCChecker.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/RateLimiter.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/TestUtils.hpp"
@@ -27,6 +28,7 @@ register_fprime_ut(
   SOURCES
     "${CMAKE_CURRENT_LIST_DIR}/test/ut/main.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/test/ut/AtomicTester.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/test/ut/CacheLinePaddedTester.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/test/ut/CRCCheckerTester.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/test/ut/RateLimiterTester.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/test/ut/TokenBucketTester.cpp"

@@ -135,13 +135,15 @@ run on platforms whose atomic support differs.
 - A default-constructed `Utils::Atomic` always holds a value-initialized (zero) `T`. A default-constructed
   `std::atomic` does not.
 - `T` must be trivially copyable, which is enforced by a `static_assert`.
-- The mutex-backed backend does not cache-line align or pad its guarded value. Several mutex-backed `Atomic`
-  members placed adjacently in a struct can share a cache line and contend under concurrent access from different
-  cores -- a throughput concern, not a correctness one. This is a deliberate choice, not an oversight: baking in a
-  fixed alignment (there is no single correct cache-line size across fprime's target platforms) would silently
-  grow every instance, which is the wrong default for a memory-constrained embedded target. A caller in a hot,
-  contended path who wants this should add explicit padding or `alignas` around the member themselves, sized for
-  their own target.
+- Neither backend cache-line aligns or pads its guarded value. Several `Atomic` members placed adjacently in a
+  struct can share a cache line and contend (false-share) under concurrent access from different cores -- a
+  throughput concern, not a correctness one. This is a deliberate default, not an oversight: baking in a fixed
+  alignment (there is no single correct cache-line size across fprime's target platforms) would silently grow
+  every instance, the wrong default for a memory-constrained embedded target. A caller in a hot, contended path
+  who wants this should wrap the member in `Utils::CacheLinePadded<T>` (see
+  [Utils::CacheLinePadded](CacheLinePadded.md)) rather than hand-writing `alignas` at the use site: a bare
+  `alignas(N)` on a struct member only guarantees where that member *starts*, not that the *next* member is pushed
+  clear of its cache line, so it does not actually solve the problem on its own.
 
 ## 4 Unit Testing
 

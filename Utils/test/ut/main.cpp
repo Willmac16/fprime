@@ -3,6 +3,7 @@
 // ----------------------------------------------------------------------
 
 #include "AtomicTester.hpp"
+#include "CacheLinePaddedTester.hpp"
 #include "RateLimiterTester.hpp"
 #include "TokenBucketTester.hpp"
 
@@ -84,6 +85,26 @@ TEST(AtomicTest, TestPointerArithmetic) {
 TEST(AtomicTest, TestConcurrentIncrement) {
     Utils::AtomicTester tester;
     tester.testConcurrentIncrement();
+}
+
+TEST(CacheLinePaddedTest, TestAlignmentAndSize) {
+    Utils::CacheLinePaddedTester tester;
+    tester.testAlignmentAndSize();
+}
+
+TEST(CacheLinePaddedTest, TestAccess) {
+    Utils::CacheLinePaddedTester tester;
+    tester.testAccess();
+}
+
+TEST(CacheLinePaddedTest, TestSeparation) {
+    Utils::CacheLinePaddedTester tester;
+    tester.testSeparation();
+}
+
+TEST(CacheLinePaddedTest, TestConcurrentAccess) {
+    Utils::CacheLinePaddedTester tester;
+    tester.testConcurrentAccess();
 }
 
 int main(int argc, char** argv) {

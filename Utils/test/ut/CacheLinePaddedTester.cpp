@@ -1,0 +1,132 @@
+// ======================================================================
+// \title  CacheLinePaddedTester.cpp
+// \brief  cpp file for Utils::CacheLinePadded test harness implementation class
+//
+// \copyright
+// Copyright 2026, by the California Institute of Technology.
+// ALL RIGHTS RESERVED.  United States Government Sponsorship
+// acknowledged.
+//
+// ======================================================================
+
+#include "CacheLinePaddedTester.hpp"
+
+#include <Os/Task.hpp>
+#include <Utils/Atomic.hpp>
+#include <cstdint>
+
+namespace Utils {
+
+namespace {
+
+//! Line size used throughout these tests; small enough to keep the fixtures cheap, and distinct from
+//! CACHE_LINE_PADDED_DEFAULT_LINE_SIZE so a bug that ignores the template parameter is still caught
+constexpr FwSizeType TEST_LINE_SIZE = 32;
+
+//! Two independently-updated padded counters, declared adjacently like a real hot-path use site
+struct AdjacentCounters {
+    CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE> first{0};
+    CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE> second{0};
+};
+
+//! Number of tasks contending for each counter in the concurrency test
+constexpr U32 CONCURRENT_TASK_COUNT = 4;
+//! Number of increments each task performs
+constexpr U32 CONCURRENT_ITERATIONS = 10000;
+
+//! Context shared by the tasks of the concurrency test
+struct CounterContext {
+    AdjacentCounters* counters;
+    U32 iterations;
+};
+
+//! One task hammers `first`, the other hammers `second`, exercising the same struct concurrently
+void counterTaskRoutine(void* pointer) {
+    CounterContext* context = static_cast<CounterContext*>(pointer);
+    for (U32 i = 0; i < context->iterations; i++) {
+        context->counters->first.get()++;
+        context->counters->second.get() += 2;
+    }
+}
+
+}  // namespace
+
+// ----------------------------------------------------------------------
+// Construction and destruction
+// ----------------------------------------------------------------------
+
+CacheLinePaddedTester ::CacheLinePaddedTester() {}
+
+CacheLinePaddedTester ::~CacheLinePaddedTester() {}
+
+// ----------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------
+
+void CacheLinePaddedTester ::testAlignmentAndSize() {
+    using Padded = CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE>;
+
+    ASSERT_EQ(alignof(Padded), TEST_LINE_SIZE);
+    ASSERT_EQ(sizeof(Padded) % TEST_LINE_SIZE, static_cast<FwSizeType>(0))
+        << "sizeof must be a whole multiple of the line size so the next member/element is pushed clear";
+
+    // a type wider than the line size still rounds up to the next whole multiple
+    struct Wide {
+        U8 bytes[TEST_LINE_SIZE + 1];
+    };
+    using WidePadded = CacheLinePadded<Wide, TEST_LINE_SIZE>;
+    ASSERT_EQ(sizeof(WidePadded) % TEST_LINE_SIZE, static_cast<FwSizeType>(0));
+    ASSERT_GE(sizeof(WidePadded), sizeof(Wide));
+}
+
+void CacheLinePaddedTester ::testAccess() {
+    CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE> padded(10);
+
+    // get() gives full, transparent access to the wrapped Atomic, including its operators
+    ASSERT_EQ(padded.get().load(), 10u);
+    padded.get() += 5;
+    ASSERT_EQ(padded.get().load(), 15u);
+    padded.get()++;
+    ASSERT_EQ(padded.get().load(), 16u);
+
+    // operator-> reaches the wrapped value's members directly
+    ASSERT_EQ(padded->load(), 16u);
+}
+
+void CacheLinePaddedTester ::testSeparation() {
+    AdjacentCounters counters;
+    const auto addrFirst = reinterpret_cast<uintptr_t>(&counters.first.get());
+    const auto addrSecond = reinterpret_cast<uintptr_t>(&counters.second.get());
+
+    ASSERT_NE(addrFirst / TEST_LINE_SIZE, addrSecond / TEST_LINE_SIZE)
+        << "adjacent padded members must not land in the same line";
+    ASSERT_GE(addrSecond - addrFirst, TEST_LINE_SIZE);
+
+    // an array of padded elements stays separated element to element too
+    CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE> elements[3];
+    for (FwSizeType i = 1; i < 3; i++) {
+        const auto previous = reinterpret_cast<uintptr_t>(&elements[i - 1].get());
+        const auto current = reinterpret_cast<uintptr_t>(&elements[i].get());
+        ASSERT_GE(current - previous, TEST_LINE_SIZE);
+    }
+}
+
+void CacheLinePaddedTester ::testConcurrentAccess() {
+    AdjacentCounters counters;
+    CounterContext context = {&counters, CONCURRENT_ITERATIONS};
+
+    Os::Task tasks[CONCURRENT_TASK_COUNT];
+    for (U32 i = 0; i < CONCURRENT_TASK_COUNT; i++) {
+        Os::Task::Arguments arguments(Os::TaskString("CacheLinePaddedUt"), counterTaskRoutine, &context);
+        ASSERT_EQ(Os::Task::Status::OP_OK, tasks[i].start(arguments));
+    }
+    for (U32 i = 0; i < CONCURRENT_TASK_COUNT; i++) {
+        ASSERT_EQ(Os::Task::Status::OP_OK, tasks[i].join());
+    }
+
+    // no update lost on either counter, despite both living in the same struct
+    ASSERT_EQ(counters.first.get().load(), CONCURRENT_TASK_COUNT * CONCURRENT_ITERATIONS);
+    ASSERT_EQ(counters.second.get().load(), CONCURRENT_TASK_COUNT * CONCURRENT_ITERATIONS * 2);
+}
+
+}  // namespace Utils
