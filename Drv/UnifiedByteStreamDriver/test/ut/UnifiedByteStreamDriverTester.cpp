@@ -354,6 +354,107 @@ void UnifiedByteStreamDriverTester::test_parameter_update_while_running() {
     ASSERT_EVENTS_ConfigurationReloaded_SIZE(1);
 }
 
+void UnifiedByteStreamDriverTester::test_transport_switch_while_running() {
+    // Up on UDP first
+    const U16 udpPort = Drv::Test::get_free_port(true);
+    ASSERT_NE(udpPort, 0);
+    this->setParameters(ByteStreamTransport::UDP, loopback(udpPort), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);
+    this->component.start();
+    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never opened its UDP socket";
+
+    // Now move it to a listener, which needs a socket the UDP generation never created
+    const U16 tcpPort = Drv::Test::get_free_port();
+    ASSERT_NE(tcpPort, 0);
+    this->paramSet_LOCAL_ENDPOINT(loopback(tcpPort), Fw::ParamValid::VALID);
+    this->paramSet_TRANSPORT(ByteStreamTransport::TCP_SERVER, Fw::ParamValid::VALID);
+    this->paramSend_LOCAL_ENDPOINT(0, 0);
+    this->paramSend_TRANSPORT(0, 0);
+
+    // A peer can only connect if the read task really did come back and listen
+    Drv::TcpClientSocket peer;
+    Drv::SocketDescriptor peerDescriptor;
+    ASSERT_EQ(peer.configure(LOOPBACK, tcpPort, 0, 100), Drv::SOCK_SUCCESS);
+    Drv::SocketIpStatus status = Drv::SOCK_FAILED_TO_CONNECT;
+    for (U32 i = 0; (i < WAIT_ITERATIONS) && (status != Drv::SOCK_SUCCESS); i++) {
+        status = peer.open(peerDescriptor);
+        if (status != Drv::SOCK_SUCCESS) {
+            (void)Os::Task::delay(Fw::TimeInterval(0, 10000));
+        }
+    }
+    ASSERT_EQ(status, Drv::SOCK_SUCCESS) << "Driver never listened after the switch to TCP_SERVER";
+    ASSERT_TRUE(this->wait_on_open(true, WAIT_ITERATIONS)) << "Driver never accepted the connection";
+    ASSERT_EQ(this->component.getTransport(), ByteStreamTransport::TCP_SERVER);
+    ASSERT_EQ(this->component.getLocalPort(), tcpPort);
+
+    // And it carries data on the transport it moved to
+    Drv::Test::force_recv_timeout(this->component.m_descriptor.fd, this->component.getSocketHandler());
+    Drv::Test::force_recv_timeout(peerDescriptor.fd, peer);
+    U8 received[sizeof(this->m_data_storage)] = {};
+    FwSizeType size = 0;
+    {
+        Os::ScopeLock lock(this->m_buffer_lock);
+        this->m_data_buffer.setSize(sizeof(this->m_data_storage));
+        size = Drv::Test::fill_random_buffer(this->m_data_buffer);
+    }
+    ASSERT_EQ(this->invoke_to_send(0, this->m_data_buffer), ByteStreamStatus::OP_OK);
+    Drv::Test::receive_all(peer, peerDescriptor, received, size);
+    Drv::Test::validate_random_buffer(this->m_data_buffer, received);
+
+    this->component.stop();
+    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
+    peer.close(peerDescriptor);
+}
+
+void UnifiedByteStreamDriverTester::test_transport_switch_releases_listener() {
+    // The other direction: a listener has to be given up, not left bound, when the transport
+    // moves off it. Binding the same port afterwards is what proves it was released.
+    const U16 tcpPort = Drv::Test::get_free_port();
+    ASSERT_NE(tcpPort, 0);
+    this->setParameters(ByteStreamTransport::TCP_SERVER, loopback(tcpPort), unset());
+    ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::TCP_SERVER);
+    this->component.start();
+
+    Drv::TcpClientSocket peer;
+    Drv::SocketDescriptor peerDescriptor;
+    ASSERT_EQ(peer.configure(LOOPBACK, tcpPort, 0, 100), Drv::SOCK_SUCCESS);
+    Drv::SocketIpStatus status = Drv::SOCK_FAILED_TO_CONNECT;
+    for (U32 i = 0; (i < WAIT_ITERATIONS) && (status != Drv::SOCK_SUCCESS); i++) {
+        status = peer.open(peerDescriptor);
+        if (status != Drv::SOCK_SUCCESS) {
+            (void)Os::Task::delay(Fw::TimeInterval(0, 10000));
+        }
+    }
+    ASSERT_EQ(status, Drv::SOCK_SUCCESS) << "Peer never connected to the driver's listener";
+    peer.close(peerDescriptor);
+
+    const U16 udpPort = Drv::Test::get_free_port(true);
+    ASSERT_NE(udpPort, 0);
+    this->paramSet_LOCAL_ENDPOINT(loopback(udpPort), Fw::ParamValid::VALID);
+    this->paramSet_TRANSPORT(ByteStreamTransport::UDP, Fw::ParamValid::VALID);
+    this->paramSend_LOCAL_ENDPOINT(0, 0);
+    this->paramSend_TRANSPORT(0, 0);
+
+    U16 moved = 0;
+    for (U32 i = 0; (i < WAIT_ITERATIONS) && (moved != udpPort); i++) {
+        moved = this->component.getLocalPort();
+        if (moved != udpPort) {
+            (void)Os::Task::delay(Fw::TimeInterval(0, 10000));
+        }
+    }
+    ASSERT_EQ(moved, udpPort) << "Driver never came up on UDP after leaving TCP_SERVER";
+
+    // The listening port must be free again, or the listener outlived its transport
+    Drv::TcpServerSocket rebind;
+    Drv::SocketDescriptor rebindDescriptor;
+    ASSERT_EQ(rebind.configure(LOOPBACK, tcpPort, 0, 100), Drv::SOCK_SUCCESS);
+    ASSERT_EQ(rebind.startup(rebindDescriptor), Drv::SOCK_SUCCESS) << "Listening socket was never released";
+    rebind.terminate(rebindDescriptor);
+
+    this->component.stop();
+    ASSERT_EQ(this->component.join(), Os::Task::Status::OP_OK);
+}
+
 void UnifiedByteStreamDriverTester::test_ephemeral_port_reported() {
     this->setParameters(ByteStreamTransport::UDP, loopback(0), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);

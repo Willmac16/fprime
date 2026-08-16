@@ -98,13 +98,23 @@ live connection is dropped: the task picks the change up through `getSocketHandl
 way back round its reconnect path, and reopens on the new values. `ConfigurationReloaded`
 reports it either way.
 
+The transport itself can change that way too, listeners included. `readLoop` runs one pass
+per transport rather than one pass per task: it brings a listening socket up before handing
+control to the helper's loop and releases it after, and `parameterUpdated` disables
+automatic open so that loop returns here instead of carrying on with the transport it
+started with. The pass decides on the staged transport rather than the resolved one, since
+the change is only applied when the read task next opens, and a listener has to exist before
+that open rather than after it. `Nominal.TransportSwitchWhileRunning` moves a live link onto
+a listener, and `Nominal.TransportSwitchReleasesListener` moves it off one and rebinds the
+port to prove it was given back.
+
 Handing the change to the read task — rather than stopping and restarting it — matters
 twice over. `Drv::SocketComponentHelper` asserts its tasks have never been started, so it
 cannot be restarted at all. And the configuration and the sockets it configures belong to
 the read task while that task is alive, so applying a change on the commanding thread would
 be a data race. The parameters, everything resolved from them, and the lock that guards
-them are one `Configuration` struct for that reason; the downlink counters, rate limiters
-and the lock that serializes telemetry and events across the two threads are another.
+them are one `Configuration` struct for that reason; the downlink counters and the lock that
+serializes telemetry across the two threads are another.
 
 Those two locks are taken configuration-first where both are needed, and neither is ever
 held across a call into `Drv::SocketComponentHelper`, which takes its own lock before

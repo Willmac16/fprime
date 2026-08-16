@@ -102,6 +102,12 @@ class UnifiedByteStreamDriverTester : public UnifiedByteStreamDriverGTestBase {
     // Behavior tests
     // ----------------------------------------------------------------------
 
+    //! The transport can change to a listener while the read task is running
+    void test_transport_switch_while_running();
+
+    //! And moving off a listener gives its port back
+    void test_transport_switch_releases_listener();
+
     //! An ephemeral port is reported once the system has assigned it
     void test_ephemeral_port_reported();
 

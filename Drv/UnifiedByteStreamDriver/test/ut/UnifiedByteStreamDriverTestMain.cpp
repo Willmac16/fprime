@@ -109,6 +109,16 @@ TEST(Nominal, ParameterUpdateWhileRunning) {
     tester.test_parameter_update_while_running();
 }
 
+TEST(Nominal, TransportSwitchWhileRunning) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_transport_switch_while_running();
+}
+
+TEST(Nominal, TransportSwitchReleasesListener) {
+    Drv::UnifiedByteStreamDriverTester tester;
+    tester.test_transport_switch_releases_listener();
+}
+
 TEST(Nominal, EphemeralPortReported) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_ephemeral_port_reported();

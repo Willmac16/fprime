@@ -266,7 +266,7 @@ ByteStreamTransport UnifiedByteStreamDriver::configureSerial() {
 void UnifiedByteStreamDriver::buildEndpoint() {
     // A wildcard local port is only resolved when the transport opens, so prefer the port
     // actually bound over the requested one
-    const U16 bound = this->getLocalPort();
+    const U16 bound = this->boundPort();
     const U16 localPort = (bound != 0) ? bound : this->m_config.localEndpoint.get_port();
     const U16 remotePort = this->m_config.remoteEndpoint.get_port();
     Fw::String local;
@@ -307,7 +307,7 @@ void UnifiedByteStreamDriver::reportConfiguration() {
     this->tlmWrite_SERIAL_CONFIG(this->m_config.serial);
     this->tlmWrite_RECV_BUFFER_SIZE(this->m_config.recvBufferSize);
     this->tlmWrite_SEND_TIMEOUT(this->m_config.sendTimeout);
-    this->tlmWrite_LocalPort(this->getLocalPort());
+    this->tlmWrite_LocalPort(this->boundPort());
 }
 
 void UnifiedByteStreamDriver::parametersLoaded() {
@@ -352,6 +352,10 @@ void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
         this->m_config.suppressApply = true;
         live = this->m_config.transport;
     }
+    // Drop the read task out of the helper's loop and back into ours, which is where a
+    // listening socket is brought up and released. Without this the loop keeps running on
+    // the transport it entered with, and a change into TCP_SERVER would never listen.
+    this->setAutomaticOpen(false);
     // A read blocked on a socket does not notice a close, so break it out first. A blocked
     // serial read is not a socket to shut down - it returns on its own read timeout - and
     // shutting it down would close the descriptor the close below owns.
@@ -424,12 +428,25 @@ Os::Task::Status UnifiedByteStreamDriver::join() {
     return status;
 }
 
+ByteStreamTransport UnifiedByteStreamDriver::intendedTransport() const {
+    Os::ScopeLock lock(this->m_config.lock);
+    // Where the driver is going, rather than where it is. A staged change has already been
+    // written to the parameter but is not applied until the read task opens on it, and the
+    // listening socket has to exist before that open rather than after it.
+    return this->m_config.reconfigurePending ? this->m_config.transportParam : this->m_config.transport;
+}
+
 ByteStreamTransport UnifiedByteStreamDriver::getTransport() const {
     Os::ScopeLock lock(this->m_config.lock);
     return this->m_config.transport;
 }
 
 U16 UnifiedByteStreamDriver::getLocalPort() {
+    Os::ScopeLock lock(this->m_config.lock);
+    return this->boundPort();
+}
+
+U16 UnifiedByteStreamDriver::boundPort() {
     U16 port = 0;
     switch (this->m_config.transport.e) {
         case ByteStreamTransport::TCP_SERVER:
@@ -538,7 +555,7 @@ void UnifiedByteStreamDriver::connected() {
         this->buildEndpoint();  // an ephemeral port only has a value now
         transport = this->m_config.transport;
         endpoint = this->m_config.endpoint;
-        localPort = this->getLocalPort();
+        localPort = this->boundPort();
     }
     {
         Os::ScopeLock lock(this->m_downlink.lock);
@@ -561,36 +578,45 @@ SocketIpStatus UnifiedByteStreamDriver::startupServer() {
     return status;
 }
 
-void UnifiedByteStreamDriver::terminateServer() {
-    SocketComponentHelper::stop();
+void UnifiedByteStreamDriver::releaseListener() {
     Os::ScopeLock scopedLock(this->m_lock);
-    this->m_tcpServer.terminate(this->m_descriptor);
-    this->m_descriptor.serverFd = -1;
+    if (this->m_descriptor.serverFd != -1) {
+        this->m_tcpServer.terminate(this->m_descriptor);
+        this->m_descriptor.serverFd = -1;
+    }
 }
 
 void UnifiedByteStreamDriver::readLoop() {
-    // A listening socket has to be brought up before the helper's loop can accept on it,
-    // and torn down after. This mirrors Drv::TcpServerComponentImpl, which is where the
-    // logic lives: Drv::Ip carries the socket, not the listen lifecycle.
-    if (this->getTransport() == ByteStreamTransport::TCP_SERVER) {
-        Drv::SocketIpStatus status = Drv::SocketIpStatus::SOCK_NOT_STARTED;
-        // Keep trying to listen until it works, a stop is requested, or reopen is disabled
-        // @non-terminating@: retry loop bounded by stop request
-        do {
-            status = this->startupServer();
-            if (status != SOCK_SUCCESS) {
-                Fw::Logger::log("[WARNING] Failed to listen on port %hu with status %d\n",
-                                this->m_tcpServer.getListenPort(), status);
-                (void)Os::Task::delay(SOCKET_RETRY_INTERVAL);
-            }
-        } while (this->running() && (status != SOCK_SUCCESS) && this->getAutomaticOpen());
+    // One pass of this loop is one transport. The helper's loop runs until the transport is
+    // taken away from underneath it, which is how a change of transport gets back here: a
+    // listening socket belongs to the transport that wanted it, so it is brought up and
+    // released around the helper's loop rather than around the task.
+    while (this->running()) {
+        this->setAutomaticOpen(true);
+        if (this->intendedTransport() == ByteStreamTransport::TCP_SERVER) {
+            Drv::SocketIpStatus status = Drv::SocketIpStatus::SOCK_NOT_STARTED;
+            // Keep trying to listen until it works, a stop is requested, or reopen is disabled
+            // @non-terminating@: retry loop bounded by stop request
+            do {
+                status = this->startupServer();
+                if (status != SOCK_SUCCESS) {
+                    U16 listenPort = 0;
+                    {
+                        Os::ScopeLock lock(this->m_config.lock);
+                        listenPort = this->m_tcpServer.getListenPort();
+                    }
+                    Fw::Logger::log("[WARNING] Failed to listen on port %hu with status %d\n", listenPort, status);
+                    (void)Os::Task::delay(SOCKET_RETRY_INTERVAL);
+                }
+            } while (this->running() && (status != SOCK_SUCCESS) && this->getAutomaticOpen());
 
-        if (this->running() && (status == SOCK_SUCCESS)) {
-            SocketComponentHelper::readLoop();
+            if (status != SOCK_SUCCESS) {
+                this->releaseListener();
+                break;
+            }
         }
-        this->terminateServer();
-    } else {
         SocketComponentHelper::readLoop();
+        this->releaseListener();
     }
     {
         Os::ScopeLock lock(this->m_downlink.lock);

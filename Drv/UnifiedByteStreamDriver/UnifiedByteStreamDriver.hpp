@@ -171,7 +171,15 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     void reportConfiguration();
 
     SocketIpStatus startupServer();
-    void terminateServer();
+
+    //! \brief release the listening socket without stopping the read task
+    void releaseListener();
+
+    //! \brief the transport a staged change is heading for, or the current one
+    ByteStreamTransport intendedTransport() const;
+
+    //! \brief the bound port; call with the configuration lock held
+    U16 boundPort();
 
     TcpClientSocket m_tcpClient;
     TcpServerSocket m_tcpServer;
