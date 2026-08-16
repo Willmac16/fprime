@@ -64,17 +64,63 @@ void UnifiedByteStreamDriver::snapshotParameters() {
     this->m_config.sendTimeout = this->paramGet_SEND_TIMEOUT(valid);
 }
 
+bool UnifiedByteStreamDriver::parametersValid(ByteStreamConfigError& error) const {
+    if (this->m_config.recvBufferSize == 0) {
+        error = ByteStreamConfigError::INVALID_BUFFER_SIZE;
+        return false;
+    }
+    if (this->m_config.sendTimeout.get_microseconds() >= 1000000) {
+        error = ByteStreamConfigError::INVALID_SEND_TIMEOUT;
+        return false;
+    }
+    switch (this->m_config.transportParam.e) {
+        case ByteStreamTransport::TCP_CLIENT:
+            if (not this->hasRemote()) {
+                error = ByteStreamConfigError::MISSING_REMOTE_ENDPOINT;
+                return false;
+            }
+            if (not this->remoteReachable()) {
+                error = ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT;
+                return false;
+            }
+            break;
+        case ByteStreamTransport::UDP:
+            if (this->hasRemote() && (not this->remoteReachable())) {
+                error = ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT;
+                return false;
+            }
+            break;
+        case ByteStreamTransport::SERIAL:
+            if (this->m_config.serial.get_device().length() == 0) {
+                error = ByteStreamConfigError::NO_SERIAL_DEVICE;
+                return false;
+            }
+            if (not SerialStream::isBaudRateSupported(this->m_config.serial.get_baudRate())) {
+                error = ByteStreamConfigError::UNSUPPORTED_BAUD_RATE;
+                return false;
+            }
+            break;
+        case ByteStreamTransport::NONE:
+        case ByteStreamTransport::TCP_SERVER:
+            break;
+        default:
+            error = ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS;
+            return false;
+    }
+    return true;
+}
+
 ByteStreamTransport UnifiedByteStreamDriver::applyConfiguration() {
     this->m_config.reconfigurePending = false;
     this->m_config.resolved = true;
     this->snapshotParameters();
 
-    if (this->m_config.recvBufferSize == 0) {
-        this->m_config.transport = this->reject(ByteStreamConfigError::INVALID_BUFFER_SIZE);
-        return this->m_config.transport;
-    }
-    if (this->m_config.sendTimeout.get_microseconds() >= 1000000) {
-        this->m_config.transport = this->reject(ByteStreamConfigError::INVALID_SEND_TIMEOUT);
+    // Ahead of every configure call, so a rejection cannot leave a live socket carrying settings
+    // this driver refused.
+    ByteStreamConfigError error = ByteStreamConfigError::TRANSPORT_REJECTED_SETTINGS;
+    if (not this->parametersValid(error)) {
+        this->m_config.transport = this->reject(error);
+        this->reportConfiguration();
         return this->m_config.transport;
     }
     this->m_config.allocationSize = this->m_config.recvBufferSize;
@@ -115,13 +161,6 @@ ByteStreamTransport UnifiedByteStreamDriver::applyConfiguration() {
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::configureTcpClient() {
-    if (this->hasRemote() && (not this->remoteReachable())) {
-        return this->reject(ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
-    }
-    if (not this->hasRemote()) {
-        return this->reject(ByteStreamConfigError::MISSING_REMOTE_ENDPOINT);
-    }
-
     Fw::String address;
     UnifiedByteStreamDriver::formatAddress(this->m_config.remoteEndpoint, address);
     const SocketIpStatus status = this->m_tcpClient.configure(
@@ -146,10 +185,6 @@ ByteStreamTransport UnifiedByteStreamDriver::configureTcpServer() {
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::configureUdp() {
-    if (this->hasRemote() && (not this->remoteReachable())) {
-        return this->reject(ByteStreamConfigError::INCOMPLETE_REMOTE_ENDPOINT);
-    }
-
     Fw::String address;
     UnifiedByteStreamDriver::formatAddress(this->m_config.localEndpoint, address);
     SocketIpStatus status = this->m_udp.configureRecv(address.toChar(), this->m_config.localEndpoint.get_port());
@@ -171,12 +206,6 @@ ByteStreamTransport UnifiedByteStreamDriver::configureUdp() {
 }
 
 ByteStreamTransport UnifiedByteStreamDriver::configureSerial() {
-    if (this->m_config.serial.get_device().length() == 0) {
-        return this->reject(ByteStreamConfigError::NO_SERIAL_DEVICE);
-    }
-    if (not SerialStream::isBaudRateSupported(this->m_config.serial.get_baudRate())) {
-        return this->reject(ByteStreamConfigError::UNSUPPORTED_BAUD_RATE);
-    }
     const SocketIpStatus status = this->m_serial.configureSerial(
         this->m_config.serial.get_device().toChar(), this->m_config.serial.get_baudRate(),
         this->m_config.serial.get_parity(), this->m_config.serial.get_flowControl(),

@@ -111,6 +111,10 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief copy every parameter out of the component base; call with the lock held
     void snapshotParameters();
 
+    //! \brief whether the parameters describe a configuration a transport could serve
+    //! \return false and sets error when they do not; call with the configuration lock held
+    bool parametersValid(ByteStreamConfigError& error) const;
+
     //! \return NONE when the combination was rejected
     ByteStreamTransport configureTcpClient();
     ByteStreamTransport configureTcpServer();
