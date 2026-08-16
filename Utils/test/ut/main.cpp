@@ -76,6 +76,11 @@ TEST(AtomicTest, TestNonLockFreeTypes) {
     tester.testNonLockFreeTypes();
 }
 
+TEST(AtomicTest, TestPointerArithmetic) {
+    Utils::AtomicTester tester;
+    tester.testPointerArithmetic();
+}
+
 TEST(AtomicTest, TestConcurrentIncrement) {
     Utils::AtomicTester tester;
     tester.testConcurrentIncrement();

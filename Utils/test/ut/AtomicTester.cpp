@@ -173,6 +173,29 @@ void checkConcurrentIncrement() {
     ASSERT_EQ(counter.load(), static_cast<U64>(CONCURRENT_TASK_COUNT) * static_cast<U64>(CONCURRENT_ITERATIONS));
 }
 
+template <typename AtomicType>
+void checkPointerArithmetic() {
+    U32 elements[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+
+    AtomicType cursor(&elements[0]);
+    ASSERT_EQ(cursor += 3, &elements[3]) << "+= advances by element count, not byte count";
+    ASSERT_EQ(cursor.load(), &elements[3]);
+    ASSERT_EQ(cursor++, &elements[3]) << "post-increment returns the previous pointer";
+    ASSERT_EQ(cursor.load(), &elements[4]);
+    ASSERT_EQ(++cursor, &elements[5]) << "pre-increment returns the new pointer";
+    ASSERT_EQ(cursor -= 2, &elements[3]);
+    ASSERT_EQ(cursor.load(), &elements[3]);
+    ASSERT_EQ(cursor--, &elements[3]) << "post-decrement returns the previous pointer";
+    ASSERT_EQ(cursor.load(), &elements[2]);
+    ASSERT_EQ(--cursor, &elements[1]) << "pre-decrement returns the new pointer";
+
+    // fetch_add/fetch_sub take a std::ptrdiff_t element offset and return the previous pointer
+    ASSERT_EQ(cursor.fetch_add(4), &elements[1]);
+    ASSERT_EQ(cursor.load(), &elements[5]);
+    ASSERT_EQ(cursor.fetch_sub(5), &elements[5]);
+    ASSERT_EQ(cursor.load(), &elements[0]);
+}
+
 }  // namespace
 
 // ----------------------------------------------------------------------
@@ -275,6 +298,11 @@ void AtomicTester ::testNonLockFreeTypes() {
     Atomic<U32*> pointer(nullptr);
     ASSERT_TRUE(pointer.exchange(&storage) == nullptr);
     ASSERT_TRUE(pointer.load() == &storage);
+}
+
+void AtomicTester ::testPointerArithmetic() {
+    checkPointerArithmetic<Atomic<U32*>>();
+    checkPointerArithmetic<Atomic<U32*, true>>();
 }
 
 void AtomicTester ::testConcurrentIncrement() {

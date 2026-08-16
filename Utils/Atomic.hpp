@@ -15,6 +15,7 @@
 #include <Fw/FPrimeBasicTypes.hpp>
 #include <Os/Mutex.hpp>
 #include <atomic>
+#include <cstddef>
 #include <type_traits>
 
 namespace Utils {
@@ -54,6 +55,42 @@ struct AtomicIsLockFree<bool> : std::integral_constant<bool, (ATOMIC_BOOL_LOCK_F
 //! \brief pointers have a dedicated lock-free macro
 template <typename T>
 struct AtomicIsLockFree<T*> : std::integral_constant<bool, (ATOMIC_POINTER_LOCK_FREE == 2)> {};
+
+//! \brief true when T supports fetch_and/fetch_or/fetch_xor and the bitwise/arithmetic compound
+//! assignment operators (`&=`, `|=`, `^=`, and -- jointly with AtomicSupportsPointerOps -- `+=`, `-=`,
+//! `++`, `--`)
+//!
+//! This matches the type category for which the C++ standard specializes `std::atomic` with those
+//! operations: every integral type other than `bool`. `bool` is itself classified as an integral type
+//! by the standard (unlike an enumeration type, which `std::is_integral` correctly excludes), so it
+//! needs an explicit exclusion here; `std::atomic<bool>` is the generic/primary template and offers only
+//! load, store, exchange and compare_exchange, not the fetch_* family.
+template <typename T>
+struct AtomicSupportsIntegralOps
+    : std::integral_constant<bool, std::is_integral<T>::value && !std::is_same<T, bool>::value> {};
+
+//! \brief true when T is a pointer, which supports fetch_add/fetch_sub and `+=`, `-=`, `++`, `--` with a
+//! `std::ptrdiff_t` element offset (`std::atomic<T*>`'s pointer specialization)
+//!
+//! Pointers do not support the bitwise fetch_and/fetch_or/fetch_xor operations or `&=`, `|=`, `^=`.
+template <typename T>
+struct AtomicSupportsPointerOps : std::is_pointer<T> {};
+
+//! \brief the argument type of fetch_add/fetch_sub (and the operand of `+=`, `-=`, `++`, `--`) for T
+//!
+//! T itself for integral types. For pointer types, `std::ptrdiff_t`, so that the argument advances the
+//! pointer by that many elements -- matching `std::atomic<T*>::fetch_add` -- rather than (nonsensically)
+//! being another pointer value of type T.
+template <typename T>
+struct AtomicDeltaType {
+    using type = T;
+};
+
+//! \brief pointer specialization of AtomicDeltaType: advances by element count, not by byte count
+template <typename T>
+struct AtomicDeltaType<T*> {
+    using type = std::ptrdiff_t;
+};
 
 namespace AtomicInternal {
 
@@ -103,27 +140,46 @@ class LockFreeBackend {
     }
 
     //! \brief atomically add to the value and return the previous value
-    T fetch_add(T argument, std::memory_order order = std::memory_order_seq_cst) {
+    //!
+    //! Requires an integral T (other than bool) or a pointer T -- see AtomicSupportsIntegralOps and
+    //! AtomicSupportsPointerOps. For pointer T, `argument` is an element offset applied through pointer
+    //! arithmetic, not a byte offset.
+    T fetch_add(typename AtomicDeltaType<T>::type argument, std::memory_order order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value || AtomicSupportsPointerOps<T>::value,
+                      "Utils::Atomic<T>::fetch_add requires an integral T (other than bool) or a pointer T");
         return this->m_value.fetch_add(argument, order);
     }
 
     //! \brief atomically subtract from the value and return the previous value
-    T fetch_sub(T argument, std::memory_order order = std::memory_order_seq_cst) {
+    //!
+    //! Requires an integral T (other than bool) or a pointer T; see fetch_add.
+    T fetch_sub(typename AtomicDeltaType<T>::type argument, std::memory_order order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value || AtomicSupportsPointerOps<T>::value,
+                      "Utils::Atomic<T>::fetch_sub requires an integral T (other than bool) or a pointer T");
         return this->m_value.fetch_sub(argument, order);
     }
 
     //! \brief atomically bitwise-and the value and return the previous value
+    //! Requires an integral T other than bool; see AtomicSupportsIntegralOps.
     T fetch_and(T argument, std::memory_order order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value,
+                      "Utils::Atomic<T>::fetch_and requires an integral T other than bool");
         return this->m_value.fetch_and(argument, order);
     }
 
     //! \brief atomically bitwise-or the value and return the previous value
+    //! Requires an integral T other than bool; see AtomicSupportsIntegralOps.
     T fetch_or(T argument, std::memory_order order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value,
+                      "Utils::Atomic<T>::fetch_or requires an integral T other than bool");
         return this->m_value.fetch_or(argument, order);
     }
 
     //! \brief atomically bitwise-xor the value and return the previous value
+    //! Requires an integral T other than bool; see AtomicSupportsIntegralOps.
     T fetch_xor(T argument, std::memory_order order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value,
+                      "Utils::Atomic<T>::fetch_xor requires an integral T other than bool");
         return this->m_value.fetch_xor(argument, order);
     }
 
@@ -150,6 +206,12 @@ class LockFreeBackend {
 //! that relationship between operations on two independently-locked objects (for example, two separate
 //! `Atomic` instances used as the two flags of a Dekker's-algorithm-style protocol). Code relying on that
 //! cross-object guarantee needs true `seq_cst` atomics, not this backend.
+//!
+//! \note `m_value` and `m_mutex` are not cache-line aligned or padded. Several mutex-backed `Atomic`
+//! members placed adjacently in a struct can therefore share a cache line and contend under concurrent
+//! access from different cores. That is a throughput concern, not a correctness one (the mutex still
+//! serializes access correctly); a caller in a hot, multi-core path who cares should add explicit padding
+//! or `alignas` around the member, sized for their own target's cache line.
 template <typename T>
 class MutexBackend {
   public:
@@ -213,7 +275,13 @@ class MutexBackend {
     }
 
     //! \brief atomically add to the value and return the previous value
-    T fetch_add(T argument, std::memory_order = std::memory_order_seq_cst) {
+    //!
+    //! Requires an integral T (other than bool) or a pointer T; see LockFreeBackend::fetch_add. For
+    //! pointer T, ordinary pointer arithmetic (`T* + std::ptrdiff_t`) gives the same element-wise
+    //! semantics as `std::atomic<T*>::fetch_add`.
+    T fetch_add(typename AtomicDeltaType<T>::type argument, std::memory_order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value || AtomicSupportsPointerOps<T>::value,
+                      "Utils::Atomic<T>::fetch_add requires an integral T (other than bool) or a pointer T");
         Os::ScopeLock lock(this->m_mutex);
         const T previous = this->m_value;
         this->m_value = static_cast<T>(previous + argument);
@@ -221,7 +289,10 @@ class MutexBackend {
     }
 
     //! \brief atomically subtract from the value and return the previous value
-    T fetch_sub(T argument, std::memory_order = std::memory_order_seq_cst) {
+    //! Requires an integral T (other than bool) or a pointer T; see fetch_add.
+    T fetch_sub(typename AtomicDeltaType<T>::type argument, std::memory_order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value || AtomicSupportsPointerOps<T>::value,
+                      "Utils::Atomic<T>::fetch_sub requires an integral T (other than bool) or a pointer T");
         Os::ScopeLock lock(this->m_mutex);
         const T previous = this->m_value;
         this->m_value = static_cast<T>(previous - argument);
@@ -229,7 +300,10 @@ class MutexBackend {
     }
 
     //! \brief atomically bitwise-and the value and return the previous value
+    //! Requires an integral T other than bool; see AtomicSupportsIntegralOps.
     T fetch_and(T argument, std::memory_order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value,
+                      "Utils::Atomic<T>::fetch_and requires an integral T other than bool");
         Os::ScopeLock lock(this->m_mutex);
         const T previous = this->m_value;
         this->m_value = static_cast<T>(previous & argument);
@@ -237,7 +311,10 @@ class MutexBackend {
     }
 
     //! \brief atomically bitwise-or the value and return the previous value
+    //! Requires an integral T other than bool; see AtomicSupportsIntegralOps.
     T fetch_or(T argument, std::memory_order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value,
+                      "Utils::Atomic<T>::fetch_or requires an integral T other than bool");
         Os::ScopeLock lock(this->m_mutex);
         const T previous = this->m_value;
         this->m_value = static_cast<T>(previous | argument);
@@ -245,7 +322,10 @@ class MutexBackend {
     }
 
     //! \brief atomically bitwise-xor the value and return the previous value
+    //! Requires an integral T other than bool; see AtomicSupportsIntegralOps.
     T fetch_xor(T argument, std::memory_order = std::memory_order_seq_cst) {
+        static_assert(AtomicSupportsIntegralOps<T>::value,
+                      "Utils::Atomic<T>::fetch_xor requires an integral T other than bool");
         Os::ScopeLock lock(this->m_mutex);
         const T previous = this->m_value;
         this->m_value = static_cast<T>(previous ^ argument);
@@ -302,10 +382,21 @@ struct BackendSelector<T, true> {
 //! ```
 //!
 //! The compound assignment operators, like their `std::atomic` counterparts, are each a single atomic
-//! read-modify-write; they do not decompose into a separate load and store. They are defined for the
-//! integral types only: `Atomic<T*>` and `Atomic<bool>` supply `load`, `store`, `exchange` and the
-//! compare-exchange operations, and instantiating an arithmetic or bitwise operator on such a type is a
-//! compile error.
+//! read-modify-write; they do not decompose into a separate load and store. Which ones are available
+//! depends on T, matching `std::atomic`'s own type-category specializations:
+//!
+//! - Integral T other than `bool`: all of `+=`, `-=`, `&=`, `|=`, `^=`, `++`, `--`.
+//! - Pointer T: `+=`, `-=`, `++`, `--` only, each taking (or acting as) a `std::ptrdiff_t` element
+//!   offset -- `pointerAtomic += 3` advances the pointer by three elements, not three bytes -- matching
+//!   `std::atomic<T*>`. There is no bitwise pointer arithmetic, so `&=`, `|=`, `^=` are not available.
+//! - `bool` and any other trivially copyable T (structs, enums, ...): none of the above. `bool` is
+//!   explicitly excluded even though it would otherwise compile through integral promotion (`bool + bool`
+//!   is a valid, if meaningless, expression); enums and structs are excluded because they generally lack
+//!   the necessary operators in the first place. Use `load`/`store`/`exchange`/`compare_exchange_*`.
+//!
+//! An operator instantiated for a T outside its supported category is a compile error (a `static_assert`
+//! inside the corresponding backend method), evaluated only when that operator is actually called -- an
+//! `Atomic<bool>` or `Atomic<SomeStruct>` remains fully usable through the always-available operations.
 //!
 //! \tparam T value type; must be trivially copyable
 //! \tparam USE_MUTEX selects the mutex-backed implementation. Defaults to "only where the platform needs
@@ -321,6 +412,8 @@ template <typename T, bool USE_MUTEX = !AtomicIsLockFree<T>::value>
 class Atomic : public AtomicInternal::BackendSelector<T, USE_MUTEX>::type {
   private:
     using Base = typename AtomicInternal::BackendSelector<T, USE_MUTEX>::type;
+    //! \brief the operand type of +=, -=, ++ and -- for T: T itself, or std::ptrdiff_t for pointer T
+    using Delta = typename AtomicDeltaType<T>::type;
 
     static_assert(std::is_trivially_copyable<T>::value, "Utils::Atomic requires a trivially copyable type");
 
@@ -354,84 +447,47 @@ class Atomic : public AtomicInternal::BackendSelector<T, USE_MUTEX>::type {
     //! \brief atomically read the value
     operator T() const { return this->load(); }
 
-    //! \brief atomically add to the value
+    //! \brief atomically add to the value (or, for pointer T, advance it by `argument` elements)
     //! \return the new value, matching `std::atomic`
-    T operator+=(T argument) {
-        assertNotBool();
-        return static_cast<T>(this->fetch_add(argument) + argument);
-    }
+    T operator+=(Delta argument) { return static_cast<T>(this->fetch_add(argument) + argument); }
 
-    //! \brief atomically subtract from the value
+    //! \brief atomically subtract from the value (or, for pointer T, retreat it by `argument` elements)
     //! \return the new value, matching `std::atomic`
-    T operator-=(T argument) {
-        assertNotBool();
-        return static_cast<T>(this->fetch_sub(argument) - argument);
-    }
+    T operator-=(Delta argument) { return static_cast<T>(this->fetch_sub(argument) - argument); }
 
     //! \brief atomically bitwise-and the value
     //! \return the new value, matching `std::atomic`
-    T operator&=(T argument) {
-        assertNotBool();
-        return static_cast<T>(this->fetch_and(argument) & argument);
-    }
+    T operator&=(T argument) { return static_cast<T>(this->fetch_and(argument) & argument); }
 
     //! \brief atomically bitwise-or the value
     //! \return the new value, matching `std::atomic`
-    T operator|=(T argument) {
-        assertNotBool();
-        return static_cast<T>(this->fetch_or(argument) | argument);
-    }
+    T operator|=(T argument) { return static_cast<T>(this->fetch_or(argument) | argument); }
 
     //! \brief atomically bitwise-xor the value
     //! \return the new value, matching `std::atomic`
-    T operator^=(T argument) {
-        assertNotBool();
-        return static_cast<T>(this->fetch_xor(argument) ^ argument);
-    }
+    T operator^=(T argument) { return static_cast<T>(this->fetch_xor(argument) ^ argument); }
 
-    //! \brief atomically increment the value
+    //! \brief atomically increment the value (or, for pointer T, advance it by one element)
     //! \return the new value
     T operator++() {
-        assertNotBool();
-        return static_cast<T>(this->fetch_add(static_cast<T>(1)) + static_cast<T>(1));
+        const Delta one = static_cast<Delta>(1);
+        return static_cast<T>(this->fetch_add(one) + one);
     }
 
-    //! \brief atomically increment the value
+    //! \brief atomically increment the value (or, for pointer T, advance it by one element)
     //! \return the previous value
-    T operator++(int) {
-        assertNotBool();
-        return this->fetch_add(static_cast<T>(1));
-    }
+    T operator++(int) { return this->fetch_add(static_cast<Delta>(1)); }
 
-    //! \brief atomically decrement the value
+    //! \brief atomically decrement the value (or, for pointer T, retreat it by one element)
     //! \return the new value
     T operator--() {
-        assertNotBool();
-        return static_cast<T>(this->fetch_sub(static_cast<T>(1)) - static_cast<T>(1));
+        const Delta one = static_cast<Delta>(1);
+        return static_cast<T>(this->fetch_sub(one) - one);
     }
 
-    //! \brief atomically decrement the value
+    //! \brief atomically decrement the value (or, for pointer T, retreat it by one element)
     //! \return the previous value
-    T operator--(int) {
-        assertNotBool();
-        return this->fetch_sub(static_cast<T>(1));
-    }
-
-  private:
-    //! \brief block the arithmetic/bitwise operators for `bool`
-    //!
-    //! `bool` supports `+`, `&`, `|`, `^` etc. via integral promotion, so unlike `Atomic<T*>` (where pointer
-    //! arithmetic naturally fails to compile against these operators' signatures), nothing stops
-    //! `MutexBackend<bool>::fetch_add` and friends from compiling. `LockFreeBackend<bool>` is safe without
-    //! help, because `std::atomic<bool>` has no `fetch_*` members at all -- but that protection would vanish
-    //! for a project that forces `Atomic<bool, true>`. This assertion is only evaluated when one of these
-    //! operators is actually instantiated (i.e. called), so `Atomic<bool>` remains usable via `load`/`store`/
-    //! `exchange`/`compare_exchange_*` exactly as documented.
-    static void assertNotBool() {
-        static_assert(!std::is_same<T, bool>::value,
-                      "Utils::Atomic<bool> does not support arithmetic or bitwise operators; use load()/store()/"
-                      "exchange()/compare_exchange_*() instead");
-    }
+    T operator--(int) { return this->fetch_sub(static_cast<Delta>(1)); }
 };
 
 }  // namespace Utils

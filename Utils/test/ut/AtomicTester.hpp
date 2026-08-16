@@ -41,6 +41,10 @@ class AtomicTester {
     //! Check types that always select the mutex-backed backend, plus bool and pointer types
     void testNonLockFreeTypes();
 
+    //! Check that pointer T supports real element-wise pointer arithmetic via +=, -=, ++, --, fetch_add
+    //! and fetch_sub, on both backends
+    void testPointerArithmetic();
+
     //! Check that concurrent read-modify-writes from several tasks do not lose updates
     void testConcurrentIncrement();
 };

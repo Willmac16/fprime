@@ -56,10 +56,24 @@ The full interface is:
 | `is_lock_free()` | runtime query, as on `std::atomic` |
 | `isLockFree()` | `static constexpr`, usable in a `static_assert` |
 
-The arithmetic and bitwise operations are available for integral types. `Utils::Atomic<bool>` and
-`Utils::Atomic<T*>` supply the load, store, exchange and compare-exchange operations; instantiating an arithmetic
-or bitwise operator on those types is a compile error, enforced by a `static_assert` for `bool` (which otherwise
-supports `+`, `&`, `|`, `^` via integral promotion) and by ordinary overload failure for pointer types.
+Which of `+=`, `-=`, `&=`, `|=`, `^=`, `++`, `--` are available depends on `T`, matching `std::atomic`'s own
+type-category specializations:
+
+| T | Available operators | Notes |
+|---|---|---|
+| integral, other than `bool` | all seven | ordinary arithmetic/bitwise semantics |
+| pointer | `+=`, `-=`, `++`, `--` only | each takes (or acts as) a `std::ptrdiff_t` **element** offset -- `cursor += 3` advances the pointer by three elements, not three bytes, matching `std::atomic<T*>`. No bitwise pointer arithmetic exists, so `&=`, `|=`, `^=` are unavailable. |
+| `bool`, or any other trivially copyable T (structs, enums, ...) | none | use `load`/`store`/`exchange`/`compare_exchange_*` instead |
+
+`bool` needs an explicit exclusion (enforced by a `static_assert`) because it is otherwise classified as an
+integral type by the standard and `bool + bool` compiles via integer promotion; enums and other non-integral types
+are excluded automatically because `std::is_integral` already returns false for them. Instantiating (i.e. calling)
+an unavailable operator is a compile error; it does not prevent using the rest of the type's interface -- an
+`Atomic<bool>` remains fully usable through `load`/`store`/`exchange`/`compare_exchange_*`.
+
+`fetch_add`/`fetch_sub` (and therefore `+=`/`-=`/`++`/`--`) take a `T` argument for integral `T`, or a
+`std::ptrdiff_t` element offset for pointer `T` -- there is no `Delta`-typed public alias, but the parameter type
+of these operations reflects it directly.
 
 The `std::memory_order` arguments default to `std::memory_order_seq_cst` and are honored by the lock-free backend.
 The mutex-backed backend accepts them for interface compatibility but ignores them, because taking and releasing
@@ -121,6 +135,13 @@ run on platforms whose atomic support differs.
 - A default-constructed `Utils::Atomic` always holds a value-initialized (zero) `T`. A default-constructed
   `std::atomic` does not.
 - `T` must be trivially copyable, which is enforced by a `static_assert`.
+- The mutex-backed backend does not cache-line align or pad its guarded value. Several mutex-backed `Atomic`
+  members placed adjacently in a struct can share a cache line and contend under concurrent access from different
+  cores -- a throughput concern, not a correctness one. This is a deliberate choice, not an oversight: baking in a
+  fixed alignment (there is no single correct cache-line size across fprime's target platforms) would silently
+  grow every instance, which is the wrong default for a memory-constrained embedded target. A caller in a hot,
+  contended path who wants this should add explicit padding or `alignas` around the member themselves, sized for
+  their own target.
 
 ## 4 Unit Testing
 
