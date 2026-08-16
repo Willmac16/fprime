@@ -12,7 +12,6 @@
 #include <Drv/Ip/TcpServerSocket.hpp>
 #include <Drv/Ip/UdpSocket.hpp>
 #include <Drv/UnifiedByteStreamDriver/UnifiedByteStreamDriverComponentAc.hpp>
-#include <Fw/Prm/PrmExternalTypes.hpp>
 #include <Fw/Types/String.hpp>
 #include <Os/Mutex.hpp>
 #include <Os/Task.hpp>
@@ -37,14 +36,10 @@ namespace Drv {
  * 0.0.0.0 binds every interface and a zero port takes an ephemeral one. A remote endpoint
  * is a destination, so an entirely zero one is no destination at all.
  *
- * The parameters are external: this component holds them, so `setConfiguration` from a
- * topology and a `param set` from the ground write the same values, and there is no second
- * copy to keep in step. A parameter that changes while the driver is running tears the
- * transport down and brings it back up on the new values.
+ * A parameter that changes while the driver is running tears the transport down and brings
+ * it back up on the new values.
  */
-class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBase,
-                                      public SocketComponentHelper,
-                                      public Fw::ParamExternalDelegate {
+class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBase, public SocketComponentHelper {
     friend class UnifiedByteStreamDriverTester;
 
   public:
@@ -54,20 +49,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     // ----------------------------------------------------------------------
     // Configuration
     // ----------------------------------------------------------------------
-
-    //! \brief set the transport and its endpoints directly, without a parameter database
-    //!
-    //! Writes the same storage the parameters use, so a later `param set` from the ground
-    //! overwrites this and a `param save` saves what was set here.
-    void setConfiguration(const ByteStreamTransport transport,
-                          const IpEndpoint& localEndpoint,
-                          const IpEndpoint& remoteEndpoint);
-
-    //! \brief set the serial line settings directly
-    void setSerialConfiguration(const SerialConfig& serialConfig);
-
-    //! \brief set the buffer size and send timeout directly
-    void setBufferConfiguration(const FwSizeType recvBufferSize, const SendTimeout& sendTimeout);
 
     //! \brief resolve the configuration into a transport, without opening it
     //!
@@ -102,19 +83,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! ephemeral port a wildcard bind was given.
     U16 getLocalPort();
 
-    // ----------------------------------------------------------------------
-    // Fw::ParamExternalDelegate
-    // ----------------------------------------------------------------------
-
-    Fw::SerializeStatus deserializeParam(const FwPrmIdType base_id,
-                                         const FwPrmIdType local_id,
-                                         const Fw::ParamValid prmStat,
-                                         Fw::SerialBufferBase& buff) override;
-
-    Fw::SerializeStatus serializeParam(const FwPrmIdType base_id,
-                                       const FwPrmIdType local_id,
-                                       Fw::SerialBufferBase& buff) const override;
-
   protected:
     IpSocket& getSocketHandler() override;
 
@@ -130,8 +98,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! Every other configuration reads through the helper's loop unchanged.
     void readLoop() override;
 
-    void parametersLoaded() override;
-
     void parameterUpdated(FwPrmIdType id) override;
 
   private:
@@ -141,6 +107,9 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
 
     //! \brief resolve the configuration; call with the configuration lock held
     ByteStreamTransport applyConfiguration();
+
+    //! \brief copy every parameter out of the component base; call with the lock held
+    void snapshotParameters();
 
     //! \return NONE when the combination was rejected
     ByteStreamTransport configureTcpClient();
@@ -175,8 +144,12 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief release the listening socket without stopping the read task
     void releaseListener();
 
-    //! \brief the transport a staged change is heading for, or the current one
-    ByteStreamTransport intendedTransport() const;
+    //! \brief apply a staged configuration; call with the configuration lock held
+    void applyPendingLocked();
+
+    //! \brief apply a staged configuration on this task
+    //! \return false while a teardown on another thread means the values are not final
+    bool settleConfiguration();
 
     //! \brief the bound port; call with the configuration lock held
     U16 boundPort();
@@ -193,8 +166,8 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     struct Configuration {
         Os::Mutex lock;
 
-        // The parameters themselves: the autocoded external parameter delegate reads and
-        // writes these, and the setters write the same fields.
+        // The parameter values this resolution was built from. The component base holds the
+        // authoritative copies; snapshotParameters takes these from it.
         ByteStreamTransport transportParam = ByteStreamTransport::NONE;
         IpEndpoint localEndpoint;
         IpEndpoint remoteEndpoint;
@@ -212,22 +185,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
         //! getSocketHandler from the caller's thread, and applying there would be the very
         //! cross-thread write the hand-off exists to avoid.
         bool suppressApply = false;
-
-        //! What a deployment set through the setters. loadParameters writes every parameter,
-        //! using the FPP default where the database has nothing saved, so a setter that runs
-        //! before it would otherwise be overwritten. Keeping a copy and re-applying it once
-        //! the load finishes is what makes the setters work on either side of it.
-        struct Overrides {
-            bool hasEndpoints = false;
-            bool hasSerial = false;
-            bool hasBuffers = false;
-            ByteStreamTransport transport = ByteStreamTransport::NONE;
-            IpEndpoint localEndpoint;
-            IpEndpoint remoteEndpoint;
-            SerialConfig serial;
-            FwSizeType recvBufferSize = 0;
-            SendTimeout sendTimeout;
-        } overrides;
     };
     mutable Configuration m_config;
 

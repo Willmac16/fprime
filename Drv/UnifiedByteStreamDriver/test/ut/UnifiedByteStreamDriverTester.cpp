@@ -259,46 +259,6 @@ void UnifiedByteStreamDriverTester::test_configuration_telemetry() {
     ASSERT_TLM_RECV_BUFFER_SIZE(0, sizeof(this->m_data_storage));
 }
 
-void UnifiedByteStreamDriverTester::test_direct_configuration() {
-    // No parameter database in the picture: the setters write the same storage the
-    // parameters use, so configure resolves from them
-    SendTimeout timeout;
-    timeout.set_seconds(0);
-    timeout.set_microseconds(100);
-    this->component.setConfiguration(ByteStreamTransport::UDP, loopback(50013), unset());
-    this->component.setBufferConfiguration(sizeof(this->m_data_storage), timeout);
-
-    ASSERT_EQ(this->component.configure(), ByteStreamTransport::UDP);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50013");
-
-    // And the same values serialize back out, so a param save would save what was set here
-    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50013));
-}
-
-void UnifiedByteStreamDriverTester::test_command_line_override() {
-    // What a deployment does for -a/-p: the parameter database has one endpoint saved, and
-    // the command line asks for another.
-    this->setParameters(ByteStreamTransport::UDP, loopback(50016), unset());
-    this->component.loadParameters();
-    this->component.setConfiguration(ByteStreamTransport::UDP, loopback(50017), unset());
-
-    ASSERT_EQ(this->component.configure(), ByteStreamTransport::UDP);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50017");
-    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50017));
-}
-
-void UnifiedByteStreamDriverTester::test_configuration_before_load_survives() {
-    // The other order, and the harder case: the database has an endpoint saved, so the load
-    // has a real value to write rather than a default. The deployment's value still wins.
-    this->setParameters(ByteStreamTransport::UDP, loopback(50018), unset());
-    this->component.setConfiguration(ByteStreamTransport::UDP, loopback(50019), unset());
-    this->component.loadParameters();
-
-    ASSERT_EQ(this->component.configure(), ByteStreamTransport::UDP);
-    ASSERT_EVENTS_ConfigurationApplied(0, ByteStreamTransport::UDP, "bind 127.0.0.1:50019");
-    ASSERT_TLM_LOCAL_ENDPOINT(0, loopback(50019));
-}
-
 void UnifiedByteStreamDriverTester::test_parameter_update_reconfigures() {
     this->setParameters(ByteStreamTransport::UDP, loopback(50014), unset());
     ASSERT_EQ(this->loadAndConfigure(), ByteStreamTransport::UDP);

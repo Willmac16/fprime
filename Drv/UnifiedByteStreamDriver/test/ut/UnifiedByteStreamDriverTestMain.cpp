@@ -84,21 +84,6 @@ TEST(Configuration, ConfigurationTelemetry) {
     tester.test_configuration_telemetry();
 }
 
-TEST(Configuration, DirectConfiguration) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_direct_configuration();
-}
-
-TEST(Configuration, CommandLineOverride) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_command_line_override();
-}
-
-TEST(Configuration, ConfigurationBeforeLoadSurvives) {
-    Drv::UnifiedByteStreamDriverTester tester;
-    tester.test_configuration_before_load_survives();
-}
-
 TEST(Configuration, ParameterUpdateReconfigures) {
     Drv::UnifiedByteStreamDriverTester tester;
     tester.test_parameter_update_reconfigures();

@@ -63,29 +63,6 @@ asserted on: these values come from an operator.
 Parameters that do not apply to the selected transport are simply unused. They are not
 worth an event.
 
-### Parameters are external
-
-Every parameter is `external`, so this component owns the storage. `setConfiguration`,
-`setSerialConfiguration` and `setBufferConfiguration` write the same fields the parameter
-database writes, which means a deployment can configure the driver from C++ without a
-second copy of the values to keep in step — a `param save` saves what C++ set, and a
-`param set` overrides it.
-
-### Configuring from the command line
-
-`Drv::TcpClient` and `Drv::Udp` take their endpoint from `argv` through a `configure` call,
-which is how `Ref` implements `-a` and `-p`. The setters serve the same purpose, and a
-deployment may call them from any phase: the command line wins over a saved endpoint either
-way, which is what an operator swapping a radio between primary and secondary wants — no
-edit to `PrmDb.dat`, and a `param set` from the ground still overrides at run time.
-
-That takes a little care inside the component, because `loadParameters` writes every
-parameter, using the FPP default where the database has nothing saved. A setter that ran
-first would simply be overwritten. So the setters also keep a copy of what they were given,
-and `parametersLoaded` — the one hook that knows the load has finished — puts that copy back
-on top. `Configuration.CommandLineOverride` and
-`Configuration.ConfigurationBeforeLoadSurvives` pin both orders.
-
 ### Resolving and re-resolving
 
 Every parameter feeds one resolution step, so `parameterUpdated` does not care which
@@ -102,11 +79,15 @@ The transport itself can change that way too, listeners included. `readLoop` run
 per transport rather than one pass per task: it brings a listening socket up before handing
 control to the helper's loop and releases it after, and `parameterUpdated` disables
 automatic open so that loop returns here instead of carrying on with the transport it
-started with. The pass decides on the staged transport rather than the resolved one, since
-the change is only applied when the read task next opens, and a listener has to exist before
-that open rather than after it. `Nominal.TransportSwitchWhileRunning` moves a live link onto
-a listener, and `Nominal.TransportSwitchReleasesListener` moves it off one and rebinds the
-port to prove it was given back.
+started with.
+
+Each pass settles the configuration before anything binds to it. A listening socket is bound
+from the values `applyConfiguration` wrote into `Drv::TcpServerSocket`, so starting one while
+a change is still staged would bind the previous endpoint — the pass applies what is pending
+first, and waits while a teardown on another thread means the values are not final yet.
+`Nominal.TransportSwitchWhileRunning` moves a live link onto a listener, and
+`Nominal.TransportSwitchReleasesListener` moves it off one and rebinds the port to prove it
+was given back.
 
 Handing the change to the read task — rather than stopping and restarting it — matters
 twice over. `Drv::SocketComponentHelper` asserts its tasks have never been started, so it
@@ -135,12 +116,6 @@ place any of them occupies. Taking the `Ref` deployment's comm driver as the sha
 instance comDriver: Drv.UnifiedByteStreamDriver base id 0x10025000 \
 {
   phase Fpp.ToCpp.Phases.startTasks """
-  // Optional: a command-line endpoint
-  if (state.hostname != nullptr && state.port != 0) {
-      comDriver.setConfiguration(Drv::ByteStreamTransport::TCP_CLIENT,
-                                 Drv::IpEndpoint(),
-                                 Drv::IpEndpoint(state.address, state.port));
-  }
   comDriver.start();
   """
 
@@ -171,22 +146,22 @@ connections Comms {
 `start` is a no-op on a rejected configuration, so the `startTasks` phase need not check
 first.
 
+The endpoint comes from the parameter database and from `param set`, not from `argv`. A
+deployment that needs a command-line endpoint — `Ref`'s `-a` and `-p`, say — wants
+`Drv::TcpClient` or `Drv::Udp`, whose `configure` takes one directly.
+
 ### Compared with configuring `Drv::TcpClient`, `Drv::TcpServer` and `Drv::Udp`
 
 Those components are configured by a `configure` call in the `configComponents` phase, which
 is the only place their endpoint can come from, and by a `startSocketTask` call that both
-starts the read task and takes the socket parameters again. `setConfiguration` above is the
-same idea in the same phase, so a deployment that has one of them already reads much the
-same. Three things differ:
+starts the read task and takes the socket parameters again. Here there is no configuration
+call at all: the values are parameters, and `start` takes none. Two things follow.
 
-- `configure` takes an address as a `const char*` to parse; `setConfiguration` takes typed
-  octets, so an address that cannot be represented cannot be passed.
-- Those components hold the configuration privately, so a value set in C++ cannot be seen or
-  changed from the ground. Here the C++ call and a `param set` write the same external
-  parameter storage, and `start` takes no configuration at all.
-- `configure` returns a status a deployment usually drops on the floor. Here a rejected
-  configuration is an `UnsupportedConfiguration` event and a disabled driver, so the ground
-  sees it whether or not the topology checked.
+- `configure` takes an address as a `const char*` to parse; a parameter is typed octets, so
+  an address that cannot be represented cannot be entered.
+- Those components hold the configuration privately, so it cannot be seen or changed from
+  the ground. Here every value is readable as telemetry and settable by command, at the cost
+  of not being settable from `argv`.
 
 ### Standalone use
 
