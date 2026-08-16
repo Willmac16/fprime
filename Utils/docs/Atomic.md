@@ -50,6 +50,7 @@ The full interface is:
 | `exchange(value, order)` | atomic write, returns the previous value |
 | `compare_exchange_strong(expected, desired, order)` | returns true on success; on failure updates `expected` |
 | `compare_exchange_weak(expected, desired, order)` | may fail spuriously, so call it in a loop |
+| `compare_exchange_strong/weak(expected, desired, success, failure)` | distinct success/failure memory orders |
 | `fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`, `fetch_xor` | return the previous value |
 | `operator+=`, `-=`, `&=`, `|=`, `^=`, `++`, `--` | return the new value (except post-increment/decrement) |
 | `is_lock_free()` | runtime query, as on `std::atomic` |
@@ -57,11 +58,17 @@ The full interface is:
 
 The arithmetic and bitwise operations are available for integral types. `Utils::Atomic<bool>` and
 `Utils::Atomic<T*>` supply the load, store, exchange and compare-exchange operations; instantiating an arithmetic
-or bitwise operator on those types is a compile error.
+or bitwise operator on those types is a compile error, enforced by a `static_assert` for `bool` (which otherwise
+supports `+`, `&`, `|`, `^` via integral promotion) and by ordinary overload failure for pointer types.
 
 The `std::memory_order` arguments default to `std::memory_order_seq_cst` and are honored by the lock-free backend.
-The mutex-backed backend accepts them for interface compatibility and ignores them: taking and releasing the mutex
-orders every access at least as strongly as `std::memory_order_seq_cst` would.
+The mutex-backed backend accepts them for interface compatibility but ignores them, because taking and releasing
+`Os::Mutex` already gives every operation on that one `Atomic` instance a well-defined, race-free, globally visible
+order regardless of what was requested. That is weaker than true `seq_cst`, though: `seq_cst` additionally places
+every `seq_cst` operation on *every* atomic object into a single total order agreed on by all threads, and
+per-mutex acquire/release does not establish that relationship between two independently-locked objects (for
+example, two separate `Atomic` instances used as the flags of a Dekker's-algorithm-style protocol). Code relying
+on that cross-object guarantee needs a lock-free, truly `seq_cst` atomic, not this backend.
 
 Copy construction and copy assignment are deleted, matching `std::atomic`. A `Utils::Atomic` is meant to be a
 member of a long-lived object, not a value passed around.

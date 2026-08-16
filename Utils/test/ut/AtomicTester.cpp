@@ -78,6 +78,24 @@ void checkExchangeAndCompareExchange() {
         // compare_exchange_weak may fail spuriously; the loop is the documented usage
     }
     ASSERT_EQ(value.load(), static_cast<T>(15));
+
+    // distinct success/failure memory order overloads
+    expected = static_cast<T>(15);
+    ASSERT_TRUE(value.compare_exchange_strong(expected, static_cast<T>(18), std::memory_order_acq_rel,
+                                              std::memory_order_acquire));
+    ASSERT_EQ(value.load(), static_cast<T>(18));
+
+    expected = static_cast<T>(15);
+    ASSERT_FALSE(value.compare_exchange_strong(expected, static_cast<T>(21), std::memory_order_acq_rel,
+                                               std::memory_order_acquire));
+    ASSERT_EQ(expected, static_cast<T>(18));
+
+    expected = static_cast<T>(18);
+    while (!value.compare_exchange_weak(expected, static_cast<T>(22), std::memory_order_acq_rel,
+                                        std::memory_order_acquire)) {
+        // compare_exchange_weak may fail spuriously; the loop is the documented usage
+    }
+    ASSERT_EQ(value.load(), static_cast<T>(22));
 }
 
 template <typename AtomicType, typename T>

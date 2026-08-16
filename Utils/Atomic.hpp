@@ -92,6 +92,16 @@ class LockFreeBackend {
         return this->m_value.compare_exchange_weak(expected, desired, order);
     }
 
+    //! \brief compare_exchange_strong with distinct success/failure memory orders
+    bool compare_exchange_strong(T& expected, T desired, std::memory_order success, std::memory_order failure) {
+        return this->m_value.compare_exchange_strong(expected, desired, success, failure);
+    }
+
+    //! \brief compare_exchange_weak with distinct success/failure memory orders
+    bool compare_exchange_weak(T& expected, T desired, std::memory_order success, std::memory_order failure) {
+        return this->m_value.compare_exchange_weak(expected, desired, success, failure);
+    }
+
     //! \brief atomically add to the value and return the previous value
     T fetch_add(T argument, std::memory_order order = std::memory_order_seq_cst) {
         return this->m_value.fetch_add(argument, order);
@@ -131,8 +141,15 @@ class LockFreeBackend {
 //! \warning This backend takes a mutex and therefore must not be used from an interrupt service routine.
 //! Code that must be ISR-safe should `static_assert(Utils::AtomicIsLockFree<T>::value)` on the value type.
 //!
-//! The `std::memory_order` arguments are accepted for interface compatibility and ignored: taking and
-//! releasing the mutex orders every access at least as strongly as `std::memory_order_seq_cst` would.
+//! The `std::memory_order` arguments are accepted for interface compatibility and ignored. Mutual exclusion
+//! plus the acquire-on-lock/release-on-unlock semantics of `Os::Mutex` are sufficient to make every operation
+//! on `m_value` race-free and to give it a well-defined, globally visible modification order -- so a single
+//! `Atomic` instance behaves correctly regardless of the order requested. That is not the same guarantee as
+//! `std::memory_order_seq_cst`, though: seq_cst additionally places every seq_cst operation on *every* atomic
+//! object into one total order agreed on by all threads, and per-mutex acquire/release does not establish
+//! that relationship between operations on two independently-locked objects (for example, two separate
+//! `Atomic` instances used as the two flags of a Dekker's-algorithm-style protocol). Code relying on that
+//! cross-object guarantee needs true `seq_cst` atomics, not this backend.
 template <typename T>
 class MutexBackend {
   public:
@@ -183,6 +200,16 @@ class MutexBackend {
     //! \brief as compare_exchange_strong; this backend never fails spuriously
     bool compare_exchange_weak(T& expected, T desired, std::memory_order order = std::memory_order_seq_cst) {
         return this->compare_exchange_strong(expected, desired, order);
+    }
+
+    //! \brief compare_exchange_strong with distinct success/failure memory orders; both are ignored
+    bool compare_exchange_strong(T& expected, T desired, std::memory_order, std::memory_order) {
+        return this->compare_exchange_strong(expected, desired);
+    }
+
+    //! \brief compare_exchange_weak with distinct success/failure memory orders; both are ignored
+    bool compare_exchange_weak(T& expected, T desired, std::memory_order, std::memory_order) {
+        return this->compare_exchange_strong(expected, desired);
     }
 
     //! \brief atomically add to the value and return the previous value
@@ -329,39 +356,82 @@ class Atomic : public AtomicInternal::BackendSelector<T, USE_MUTEX>::type {
 
     //! \brief atomically add to the value
     //! \return the new value, matching `std::atomic`
-    T operator+=(T argument) { return static_cast<T>(this->fetch_add(argument) + argument); }
+    T operator+=(T argument) {
+        assertNotBool();
+        return static_cast<T>(this->fetch_add(argument) + argument);
+    }
 
     //! \brief atomically subtract from the value
     //! \return the new value, matching `std::atomic`
-    T operator-=(T argument) { return static_cast<T>(this->fetch_sub(argument) - argument); }
+    T operator-=(T argument) {
+        assertNotBool();
+        return static_cast<T>(this->fetch_sub(argument) - argument);
+    }
 
     //! \brief atomically bitwise-and the value
     //! \return the new value, matching `std::atomic`
-    T operator&=(T argument) { return static_cast<T>(this->fetch_and(argument) & argument); }
+    T operator&=(T argument) {
+        assertNotBool();
+        return static_cast<T>(this->fetch_and(argument) & argument);
+    }
 
     //! \brief atomically bitwise-or the value
     //! \return the new value, matching `std::atomic`
-    T operator|=(T argument) { return static_cast<T>(this->fetch_or(argument) | argument); }
+    T operator|=(T argument) {
+        assertNotBool();
+        return static_cast<T>(this->fetch_or(argument) | argument);
+    }
 
     //! \brief atomically bitwise-xor the value
     //! \return the new value, matching `std::atomic`
-    T operator^=(T argument) { return static_cast<T>(this->fetch_xor(argument) ^ argument); }
+    T operator^=(T argument) {
+        assertNotBool();
+        return static_cast<T>(this->fetch_xor(argument) ^ argument);
+    }
 
     //! \brief atomically increment the value
     //! \return the new value
-    T operator++() { return static_cast<T>(this->fetch_add(static_cast<T>(1)) + static_cast<T>(1)); }
+    T operator++() {
+        assertNotBool();
+        return static_cast<T>(this->fetch_add(static_cast<T>(1)) + static_cast<T>(1));
+    }
 
     //! \brief atomically increment the value
     //! \return the previous value
-    T operator++(int) { return this->fetch_add(static_cast<T>(1)); }
+    T operator++(int) {
+        assertNotBool();
+        return this->fetch_add(static_cast<T>(1));
+    }
 
     //! \brief atomically decrement the value
     //! \return the new value
-    T operator--() { return static_cast<T>(this->fetch_sub(static_cast<T>(1)) - static_cast<T>(1)); }
+    T operator--() {
+        assertNotBool();
+        return static_cast<T>(this->fetch_sub(static_cast<T>(1)) - static_cast<T>(1));
+    }
 
     //! \brief atomically decrement the value
     //! \return the previous value
-    T operator--(int) { return this->fetch_sub(static_cast<T>(1)); }
+    T operator--(int) {
+        assertNotBool();
+        return this->fetch_sub(static_cast<T>(1));
+    }
+
+  private:
+    //! \brief block the arithmetic/bitwise operators for `bool`
+    //!
+    //! `bool` supports `+`, `&`, `|`, `^` etc. via integral promotion, so unlike `Atomic<T*>` (where pointer
+    //! arithmetic naturally fails to compile against these operators' signatures), nothing stops
+    //! `MutexBackend<bool>::fetch_add` and friends from compiling. `LockFreeBackend<bool>` is safe without
+    //! help, because `std::atomic<bool>` has no `fetch_*` members at all -- but that protection would vanish
+    //! for a project that forces `Atomic<bool, true>`. This assertion is only evaluated when one of these
+    //! operators is actually instantiated (i.e. called), so `Atomic<bool>` remains usable via `load`/`store`/
+    //! `exchange`/`compare_exchange_*` exactly as documented.
+    static void assertNotBool() {
+        static_assert(!std::is_same<T, bool>::value,
+                      "Utils::Atomic<bool> does not support arithmetic or bitwise operators; use load()/store()/"
+                      "exchange()/compare_exchange_*() instead");
+    }
 };
 
 }  // namespace Utils
