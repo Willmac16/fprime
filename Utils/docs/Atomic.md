@@ -84,8 +84,12 @@ per-mutex acquire/release does not establish that relationship between two indep
 example, two separate `Atomic` instances used as the flags of a Dekker's-algorithm-style protocol). Code relying
 on that cross-object guarantee needs a lock-free, truly `seq_cst` atomic, not this backend.
 
-Copy construction and copy assignment are deleted, matching `std::atomic`. A `Utils::Atomic` is meant to be a
-member of a long-lived object, not a value passed around.
+Copy construction and copy assignment are deleted, matching `std::atomic`, and there is no move construction or
+move assignment either -- also matching `std::atomic`, which is specified as neither copyable nor movable. Both
+directions of *value* assignment still work, though, since they don't involve copying/moving the `Atomic` object
+itself: `atomic = someT;` (store) and `T x = atomic;` (load, via the implicit conversion operator) are both fine,
+including for a struct `T`; only `atomicA = atomicB;` (assigning one whole `Atomic` to another) is the deleted
+operation. `Utils::Atomic` is meant to be a member of a long-lived object, not a value passed around.
 
 ### 2.2 Requiring a lock-free (ISR-safe) variable
 

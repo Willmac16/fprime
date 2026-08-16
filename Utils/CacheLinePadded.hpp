@@ -71,6 +71,23 @@ constexpr FwSizeType CACHE_LINE_PADDED_DEFAULT_LINE_SIZE = 64;
 //! in the common case (in flight software especially) where two atomics are not actually contended by
 //! different cores. Reach for it only for a specific, measured hot path with real cross-core contention.
 //!
+//! \note Copy and move construction/assignment are deliberately *not* declared here (no `= delete`, no
+//! hand-written `= default`): with only the forwarding constructor below user-provided, the compiler
+//! generates all four for `CacheLinePadded<T>` exactly as it would for a plain struct holding a `T`
+//! member, which means they simply defer to whatever `T` itself supports. `CacheLinePadded<T>` is
+//! copyable/movable whenever `T` is (e.g. a plain struct), and is neither, automatically, whenever `T`
+//! is neither (e.g. `Utils::Atomic<T>`, which is deliberately not copyable or movable -- see Atomic.hpp).
+//! This wrapper only changes memory layout, not value semantics, so it has no reason to be more
+//! restrictive than the type it wraps.
+//!
+//! \warning Extended alignment (`LINE_SIZE` greater than the platform's default `new`-alignment, which
+//! `alignof(std::max_align_t)` is a lower bound for) is only guaranteed to be honored by dynamic
+//! allocation (`new`, `std::vector`, ...) from C++17 onward. Before C++14/17 aligned-new support was
+//! required (fprime targets C++14), a heap-allocated or `std::vector`-held `CacheLinePadded<T, 64>` may
+//! silently receive less alignment than requested on some toolchains. Prefer placing it as a direct
+//! member or a fixed-size array member of a statically- or stack-allocated object (the common case in
+//! flight software), where ordinary object layout rules apply and this does not arise.
+//!
 //! \tparam T the wrapped type
 //! \tparam LINE_SIZE assumed cache line size in bytes; must be a power of two no smaller than `alignof(T)`
 template <typename T, FwSizeType LINE_SIZE = CACHE_LINE_PADDED_DEFAULT_LINE_SIZE>
@@ -79,15 +96,28 @@ class alignas(LINE_SIZE) CacheLinePadded {
     static_assert(LINE_SIZE >= alignof(T), "CacheLinePadded LINE_SIZE must be at least alignof(T)");
 
   public:
+    //! \brief default-construct the wrapped value
+    CacheLinePadded() : m_value() {}
+
     //! \brief construct the wrapped value, forwarding every argument to T's constructor
-    template <typename... Args>
-    explicit CacheLinePadded(Args&&... args) : m_value(std::forward<Args>(args)...) {}
-
-    //! \brief copy construction is forbidden, matching Utils::Atomic
-    CacheLinePadded(const CacheLinePadded& other) = delete;
-
-    //! \brief copy assignment is forbidden, matching Utils::Atomic
-    CacheLinePadded& operator=(const CacheLinePadded& other) = delete;
+    //!
+    //! \note Disabled (via the trailing `enable_if`) when called with a single argument that is (or
+    //! decays to) `CacheLinePadded` itself. Without that exclusion, a call like
+    //! `CacheLinePadded other(std::move(existing))` would be captured by this constructor instead of
+    //! falling through to the real copy/move constructor: a "universal reference" constructor like this
+    //! one is an exact-match candidate for an argument of the class's own type, and -- as verified against
+    //! this exact class -- that exact match can still beat the class's own (implicitly generated)
+    //! copy/move constructor in overload resolution when that constructor would be deleted (e.g. because
+    //! `T` is a `Utils::Atomic`), turning a clean "use of deleted function" diagnostic into a confusing
+    //! failure to instantiate this constructor's body instead. See Scott Meyers, *Effective Modern C++*,
+    //! Item 26, for the general form of this pitfall with universal-reference constructors.
+    template <
+        typename First,
+        typename... Rest,
+        typename = typename std::enable_if<
+            !((sizeof...(Rest) == 0) && std::is_same<CacheLinePadded, typename std::decay<First>::type>::value)>::type>
+    explicit CacheLinePadded(First&& first, Rest&&... rest)
+        : m_value(std::forward<First>(first), std::forward<Rest>(rest)...) {}
 
     //! \brief access the wrapped value
     T& get() { return this->m_value; }

@@ -14,6 +14,7 @@
 #include <Os/Task.hpp>
 #include <Utils/Atomic.hpp>
 #include <cstdint>
+#include <type_traits>
 
 namespace Utils {
 
@@ -22,6 +23,13 @@ namespace {
 //! Line size used throughout these tests; small enough to keep the fixtures cheap, and distinct from
 //! CACHE_LINE_PADDED_DEFAULT_LINE_SIZE so a bug that ignores the template parameter is still caught
 constexpr FwSizeType TEST_LINE_SIZE = 32;
+
+//! A plain, ordinarily copyable and movable struct, standing in for "most T"
+struct MovableValue {
+    I32 tag;
+    MovableValue() : tag(0) {}
+    explicit MovableValue(I32 t) : tag(t) {}
+};
 
 //! Two independently-updated padded counters, declared adjacently like a real hot-path use site
 struct AdjacentCounters {
@@ -127,6 +135,38 @@ void CacheLinePaddedTester ::testConcurrentAccess() {
     // no update lost on either counter, despite both living in the same struct
     ASSERT_EQ(counters.first.get().load(), CONCURRENT_TASK_COUNT * CONCURRENT_ITERATIONS);
     ASSERT_EQ(counters.second.get().load(), CONCURRENT_TASK_COUNT * CONCURRENT_ITERATIONS * 2);
+}
+
+void CacheLinePaddedTester ::testCopyMoveDefersToT() {
+    using PaddedMovable = CacheLinePadded<MovableValue, TEST_LINE_SIZE>;
+    using PaddedAtomic = CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE>;
+
+    // wrapping a plain copyable/movable T keeps the wrapper copyable/movable
+    static_assert(std::is_copy_constructible<PaddedMovable>::value, "must stay copy constructible");
+    static_assert(std::is_move_constructible<PaddedMovable>::value, "must stay move constructible");
+    static_assert(std::is_copy_assignable<PaddedMovable>::value, "must stay copy assignable");
+    static_assert(std::is_move_assignable<PaddedMovable>::value, "must stay move assignable");
+
+    // wrapping Utils::Atomic, which is deliberately neither, makes the wrapper neither, automatically
+    static_assert(!std::is_copy_constructible<PaddedAtomic>::value, "must stay non-copy-constructible");
+    static_assert(!std::is_move_constructible<PaddedAtomic>::value, "must stay non-move-constructible");
+    static_assert(!std::is_copy_assignable<PaddedAtomic>::value, "must stay non-copy-assignable");
+    static_assert(!std::is_move_assignable<PaddedAtomic>::value, "must stay non-move-assignable");
+
+    // and it actually works, correctly, through the real (not forwarding-constructor-hijacked) copy/move
+    PaddedMovable source(5);
+    PaddedMovable moved(std::move(source));
+    ASSERT_EQ(moved.get().tag, 5);
+
+    PaddedMovable a(1);
+    PaddedMovable b(2);
+    b = a;  // copy assignment
+    ASSERT_EQ(b.get().tag, 1);
+
+    PaddedMovable c(3);
+    PaddedMovable d(4);
+    d = std::move(c);  // move assignment
+    ASSERT_EQ(d.get().tag, 3);
 }
 
 }  // namespace Utils

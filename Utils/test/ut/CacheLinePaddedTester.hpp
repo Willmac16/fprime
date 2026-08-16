@@ -34,6 +34,10 @@ class CacheLinePaddedTester {
 
     //! Check that two concurrently-hammered, adjacently-declared padded counters both end up correct
     void testConcurrentAccess();
+
+    //! Check that copy/move construction and assignment defer to T: available and correct when T
+    //! supports them, and (via type traits) absent when T does not (e.g. Utils::Atomic)
+    void testCopyMoveDefersToT();
 };
 
 }  // namespace Utils

@@ -403,8 +403,15 @@ struct BackendSelector<T, true> {
 //!         it" and may be set to `true` to force the mutex-backed implementation (for example to test
 //!         that backend on a host where every type is lock-free).
 //!
-//! \warning Copy construction and copy assignment are deleted, matching `std::atomic`. `Atomic<T>` is
-//! intended to be a member of a long-lived object, not a value passed around.
+//! \warning Copy construction and copy assignment are deleted, matching `std::atomic`. As a consequence,
+//! `Atomic<T>` also has no move constructor or move assignment operator: a user-declared (even if deleted)
+//! copy constructor suppresses the compiler's implicit generation of the move operations, and none are
+//! declared here to take their place. This is deliberate, not an oversight -- `std::atomic` itself is
+//! specified as neither copyable nor movable. An `Atomic` represents a fixed memory location that other
+//! threads may be concurrently reading or writing; "moving" it has no well-defined atomic meaning (there
+//! is no way to atomically transfer a value out of one location and leave the source in a valid
+//! moved-from state with respect to a concurrent observer). `Atomic<T>` is intended to be a member of a
+//! long-lived object, not a value passed around, exactly like `std::atomic<T>`.
 //!
 //! \note The selected backend is a base class purely as a mixin: it supplies the public operations above and
 //! is not polymorphic, so an `Atomic` is never destroyed through a pointer to its backend.
