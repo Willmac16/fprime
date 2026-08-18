@@ -10,6 +10,7 @@
 - [F Prime TcpClient SDD](https://github.com/nasa/fprime/blob/devel/Drv/TcpClient/docs/sdd.md)
 - [F Prime TcpServer SDD](https://github.com/nasa/fprime/blob/devel/Drv/TcpServer/docs/sdd.md)
 - [F Prime Udp SDD](https://github.com/nasa/fprime/blob/devel/Drv/Udp/docs/sdd.md)
+- [F Prime UnifiedByteStreamDriver SDD](https://github.com/nasa/fprime/blob/devel/Drv/UnifiedByteStreamDriver/docs/sdd.md)
 - [F Prime Ip SDD](https://github.com/nasa/fprime/blob/devel/Drv/Ip/docs/sdd.md)
 - [F Prime LinuxUartDriver SDD](https://github.com/nasa/fprime/blob/devel/Drv/LinuxUartDriver/docs/sdd.md)
 - [F Prime LinuxGpioDriver SDD](https://github.com/nasa/fprime/blob/devel/Drv/LinuxGpioDriver/docs/sdd.md)
@@ -54,6 +55,10 @@ These drivers share a common IP helper layer that provides socket management, ad
 ### Serial Communication
 
 The Linux UART Driver provides byte stream access to serial ports on Linux systems. It implements the byte stream driver model, allowing it to be used interchangeably with network drivers in the communication stack.
+
+### Unified Byte Stream Driver
+
+The Unified Byte Stream Driver covers all of the above transports in a single component, selecting between them from its parameters instead of from the topology. `TRANSPORT` names the transport — TCP client, TCP server, UDP or serial — while `LOCAL_ENDPOINT` and `REMOTE_ENDPOINT` are `Drv::IpEndpoint` values of four typed address octets plus a port, and `SERIAL_CONFIG` carries the serial line settings. Zero carries the meaning the transports already give it: a local endpoint is bound, so `0.0.0.0` binds every interface and a zero port takes an ephemeral one, while a remote endpoint is a destination, so an entirely zero one is no destination at all. The parameters are external, so a deployment can set them from C++ and the ground can set them by command without two copies of the values, and a change made while the link is up rebuilds it in place.
 
 ### GPIO
 
