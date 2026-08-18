@@ -31,6 +31,19 @@ struct MovableValue {
     explicit MovableValue(I32 t) : tag(t) {}
 };
 
+//! A type with no default constructor at all, standing in for a T that mandates construction arguments
+struct NoDefaultValue {
+    I32 tag;
+    explicit NoDefaultValue(I32 t) : tag(t) {}
+};
+
+//! A plain aggregate (no user-declared constructor of any kind), to check zero-initialization independent
+//! of a class type supplying its own default constructor
+struct Aggregate {
+    U32 a;
+    U16 b;
+};
+
 //! Two independently-updated padded counters, declared adjacently like a real hot-path use site
 struct AdjacentCounters {
     CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE> first{0};
@@ -70,6 +83,37 @@ CacheLinePaddedTester ::~CacheLinePaddedTester() {}
 // ----------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------
+
+void CacheLinePaddedTester ::testDefaultConstruction() {
+    // a raw scalar T (not itself a class with its own zeroing default constructor) must still be
+    // value-initialized, not left indeterminate
+    CacheLinePadded<U32, TEST_LINE_SIZE> scalar;
+    ASSERT_EQ(scalar.get(), 0u);
+
+    // a plain aggregate, with no user-declared default constructor of its own, is zero-initialized too
+    CacheLinePadded<Aggregate, TEST_LINE_SIZE> aggregate;
+    ASSERT_EQ(aggregate.get().a, 0u);
+    ASSERT_EQ(aggregate.get().b, 0u);
+
+    // wrapping Utils::Atomic defers to Atomic's own default constructor, which is itself guaranteed to
+    // zero-initialize (see AtomicTester::testLoadStore)
+    CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE> atomic;
+    ASSERT_EQ(atomic.get().load(), 0u);
+
+    static_assert(std::is_default_constructible<CacheLinePadded<MovableValue, TEST_LINE_SIZE>>::value,
+                  "must stay default constructible when T is");
+
+    // Declaring CacheLinePadded<T> for a T with no default constructor is fine on its own (the bare
+    // default constructor's body is only instantiated if actually called); the forwarding constructor
+    // remains the only usable one. Note there is deliberately no
+    // `static_assert(!is_default_constructible<CacheLinePadded<NoDefaultValue>>::value)` here: that trait
+    // reports a false positive for this class shape (confirmed separately, not checked in, since this
+    // codebase has no negative-compile-test infrastructure) -- it only checks this constructor's
+    // declaration, not whether its dependent body would actually instantiate, so it cannot see the
+    // failure that `CacheLinePadded<NoDefaultValue> x;` produces if actually written.
+    CacheLinePadded<NoDefaultValue, TEST_LINE_SIZE> noDefault(NoDefaultValue(3));
+    ASSERT_EQ(noDefault.get().tag, 3);
+}
 
 void CacheLinePaddedTester ::testAlignmentAndSize() {
     using Padded = CacheLinePadded<Atomic<U32>, TEST_LINE_SIZE>;

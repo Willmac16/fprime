@@ -97,6 +97,17 @@ class alignas(LINE_SIZE) CacheLinePadded {
 
   public:
     //! \brief default-construct the wrapped value
+    //!
+    //! `m_value()` is value-initialization, not default-initialization: a scalar T (e.g. `Atomic<U32>`'s
+    //! own wrapped `U32`, or a bare `U32` used as T directly) is zero-initialized rather than left with an
+    //! indeterminate value, and a class-type T with a user-provided default constructor (e.g.
+    //! `Utils::Atomic<T>`, which itself guarantees a zeroed value) is default-constructed normally --
+    //! value-initialization and default-initialization are equivalent for any type with a user-provided
+    //! default constructor, so there is no wasted double-initialization for that case. This declaration
+    //! does not require T to actually be default-constructible: like any member function of a class
+    //! template, its body is only instantiated if this constructor is actually called, so
+    //! `CacheLinePadded<T>` for a T with no default constructor remains fully usable through the
+    //! forwarding constructor below.
     CacheLinePadded() : m_value() {}
 
     //! \brief construct the wrapped value, forwarding every argument to T's constructor

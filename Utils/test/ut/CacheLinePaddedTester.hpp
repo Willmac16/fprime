@@ -23,6 +23,11 @@ class CacheLinePaddedTester {
     ~CacheLinePaddedTester();
 
   public:
+    //! Check that the bare default constructor value-initializes (zero-initializes) the wrapped value,
+    //! for both a raw scalar T and an aggregate struct T, and that it does not require T to actually be
+    //! default-constructible unless it is itself the constructor actually called
+    void testDefaultConstruction();
+
     //! Check that alignment and size are exactly what the line size requires
     void testAlignmentAndSize();
 

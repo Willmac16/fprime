@@ -87,6 +87,11 @@ TEST(AtomicTest, TestConcurrentIncrement) {
     tester.testConcurrentIncrement();
 }
 
+TEST(CacheLinePaddedTest, TestDefaultConstruction) {
+    Utils::CacheLinePaddedTester tester;
+    tester.testDefaultConstruction();
+}
+
 TEST(CacheLinePaddedTest, TestAlignmentAndSize) {
     Utils::CacheLinePaddedTester tester;
     tester.testAlignmentAndSize();

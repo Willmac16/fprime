@@ -55,6 +55,28 @@ target's real line size should pass it explicitly:
 Utils::CacheLinePadded<Utils::Atomic<U32>, 32> counter{0};  // target uses a 32-byte line
 ```
 
+### 2.2 Default construction and initialization
+
+`Utils::CacheLinePadded<T> x;` value-initializes the wrapped `T`, so a scalar `T` (a bare `U32`, or the `U32`
+inside a lock-free `Utils::Atomic<U32>`) comes out zero rather than indeterminate, and a plain aggregate struct
+`T` comes out zero-initialized member by member -- there is no uninitialized-memory gap the way there would be
+for a default-constructed `std::atomic` or a default-constructed C array. For a class-type `T` that supplies its
+own default constructor (such as `Utils::Atomic<T>`, whose default constructor already guarantees a zeroed
+value), value-initialization and default-initialization are the same thing, so this costs nothing extra.
+
+This bare constructor's declaration does not require `T` to actually be default-constructible: like any member
+function of a class template, its body is only compiled if it is actually called. `Utils::CacheLinePadded<T>` for
+a `T` with no default constructor (one that mandates its arguments) remains fully usable -- through the
+forwarding constructor, which accepts whatever `T` itself requires:
+
+```cpp
+struct Config {
+    explicit Config(U32 id);  // no default constructor
+};
+Utils::CacheLinePadded<Config> cfg(Config(42));  // fine
+Utils::CacheLinePadded<Config> bad;              // compile error: Config has no default constructor
+```
+
 ## 3 Why not just `alignas`?
 
 A bare `alignas(N)` on a struct member looks like it should be enough, but it isn't:
