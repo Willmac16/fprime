@@ -125,9 +125,6 @@ class UnifiedByteStreamDriver final : public UnifiedByteStreamDriverComponentBas
     //! \brief read every parameter out of the component base
     ParameterSet snapshotParameters();
 
-    //! \brief whether a paramGet_ validity means the value returned is a setting
-    static bool parameterValid(const Fw::ParamValid valid);
-
     //! \brief whether the parameters describe a configuration a transport could serve
     //! \return false and sets error when they do not
     bool parametersValid(const ParameterSet& params, ByteStreamConfigError& error) const;

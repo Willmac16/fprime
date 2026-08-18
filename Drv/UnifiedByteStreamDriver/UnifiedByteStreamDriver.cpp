@@ -52,6 +52,13 @@ static_assert(static_cast<I32>(SocketStatus::AUTO_CONNECT_DISABLED) == SOCK_AUTO
               "SocketStatus drifted");
 static_assert(static_cast<I32>(SocketStatus::INVALID_CALL) == SOCK_INVALID_CALL, "SocketStatus drifted");
 
+//! A parameter the base has no value for is a coding error by the time it reaches here:
+//! parameterUpdated runs off a PARAM_SET the base has already stored, and parametersLoaded
+//! off a load that leaves every parameter VALID or DEFAULT.
+#define ASSERT_PARAM_VALID(valid)                                                         \
+    FW_ASSERT(((valid) == Fw::ParamValid::VALID) || ((valid) == Fw::ParamValid::DEFAULT), \
+              static_cast<FwAssertArgType>((valid).e))
+
 namespace {
 
 //! Whole seconds in the microseconds field belong in the seconds field
@@ -278,10 +285,6 @@ void UnifiedByteStreamDriver::buildEndpoint(const ParameterSet& params) {
     }
 }
 
-bool UnifiedByteStreamDriver::parameterValid(const Fw::ParamValid valid) {
-    return (valid == Fw::ParamValid::VALID) || (valid == Fw::ParamValid::DEFAULT);
-}
-
 void UnifiedByteStreamDriver::reportConfiguration() {
     this->tlmWrite_ActiveTransport(this->m_config.transport);
     this->tlmWrite_ActiveEndpoint(this->m_config.endpoint);
@@ -300,42 +303,30 @@ void UnifiedByteStreamDriver::parametersLoaded() {
 void UnifiedByteStreamDriver::parameterUpdated(FwPrmIdType id) {
     Fw::ParamValid valid = Fw::ParamValid::UNINIT;
     switch (id) {
-        case PARAMID_TRANSPORT: {
-            const ByteStreamTransport value = this->paramGet_TRANSPORT(valid);
-            FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            this->tlmWrite_TRANSPORT(value);
+        case PARAMID_TRANSPORT:
+            this->tlmWrite_TRANSPORT(this->paramGet_TRANSPORT(valid));
+            ASSERT_PARAM_VALID(valid);
             break;
-        }
-        case PARAMID_LOCAL_ENDPOINT: {
-            const IpEndpoint value = this->paramGet_LOCAL_ENDPOINT(valid);
-            FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            this->tlmWrite_LOCAL_ENDPOINT(value);
+        case PARAMID_LOCAL_ENDPOINT:
+            this->tlmWrite_LOCAL_ENDPOINT(this->paramGet_LOCAL_ENDPOINT(valid));
+            ASSERT_PARAM_VALID(valid);
             break;
-        }
-        case PARAMID_REMOTE_ENDPOINT: {
-            const IpEndpoint value = this->paramGet_REMOTE_ENDPOINT(valid);
-            FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            this->tlmWrite_REMOTE_ENDPOINT(value);
+        case PARAMID_REMOTE_ENDPOINT:
+            this->tlmWrite_REMOTE_ENDPOINT(this->paramGet_REMOTE_ENDPOINT(valid));
+            ASSERT_PARAM_VALID(valid);
             break;
-        }
-        case PARAMID_SERIAL_CONFIG: {
-            const SerialConfig value = this->paramGet_SERIAL_CONFIG(valid);
-            FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            this->tlmWrite_SERIAL_CONFIG(value);
+        case PARAMID_SERIAL_CONFIG:
+            this->tlmWrite_SERIAL_CONFIG(this->paramGet_SERIAL_CONFIG(valid));
+            ASSERT_PARAM_VALID(valid);
             break;
-        }
-        case PARAMID_RECV_BUFFER_SIZE: {
-            const FwSizeType value = this->paramGet_RECV_BUFFER_SIZE(valid);
-            FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            this->tlmWrite_RECV_BUFFER_SIZE(value);
+        case PARAMID_RECV_BUFFER_SIZE:
+            this->tlmWrite_RECV_BUFFER_SIZE(this->paramGet_RECV_BUFFER_SIZE(valid));
+            ASSERT_PARAM_VALID(valid);
             break;
-        }
-        case PARAMID_SEND_TIMEOUT: {
-            const SendTimeout value = this->paramGet_SEND_TIMEOUT(valid);
-            FW_ASSERT(UnifiedByteStreamDriver::parameterValid(valid), static_cast<FwAssertArgType>(valid.e));
-            this->tlmWrite_SEND_TIMEOUT(value);
+        case PARAMID_SEND_TIMEOUT:
+            this->tlmWrite_SEND_TIMEOUT(this->paramGet_SEND_TIMEOUT(valid));
+            ASSERT_PARAM_VALID(valid);
             break;
-        }
         default:
             FW_ASSERT(0, static_cast<FwAssertArgType>(id));
             break;
