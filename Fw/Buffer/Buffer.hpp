@@ -56,7 +56,12 @@ class Buffer : public Fw::Serializable {
   public:
     //! Buffer ownership state
     //!
-    //! A convenience enumeration to help users implement ownership tracking of buffers.
+    //! Records whether this particular Fw::Buffer is the one responsible for returning the memory it wraps. Several
+    //! Fw::Buffer objects may refer to the same allocation -- see `alias()` -- but at most one of them should be
+    //! OWNED, and that one is answerable for the allocation.
+    //!
+    //! A buffer is NOT_OWNED unless `claim()` says otherwise. Moving a buffer carries the state to the destination;
+    //! copying or aliasing one does not, because the result is another reference, not another owner.
     enum class OwnershipState {
         NOT_OWNED,  //!< The buffer is currently not owned
         OWNED,      //!< The buffer is currently owned
@@ -136,10 +141,14 @@ class Buffer : public Fw::Serializable {
 
     //! Destroy this buffer
     //!
-    //! When FW_BUFFER_STRICT_OWNERSHIP is enabled, destroying a buffer that still refers to wrapped data is a
-    //! programming error and asserts: the buffer was neither moved on to another owner nor explicitly released, so
-    //! whatever allocation it referred to has been dropped on the floor. Empty the buffer with `release()` before it
-    //! goes out of scope when this buffer was only ever a view onto memory owned elsewhere.
+    //! When FW_BUFFER_STRICT_OWNERSHIP is enabled, destroying an OWNED buffer is a programming error and asserts:
+    //! this buffer was answerable for its allocation and was neither moved on to another owner nor released, so the
+    //! allocation has been dropped on the floor. Destroying a NOT_OWNED buffer is silent however much data it refers
+    //! to, because a buffer that never claimed responsibility has nothing to drop.
+    //!
+    //! That distinction is what keeps the check meaningful. A check keyed on the data pointer instead could not tell
+    //! an owner apart from an alias, so every alias would have to be silenced -- and the silencing would hide real
+    //! leaks just as effectively.
     //!
     //! When FW_BUFFER_STRICT_OWNERSHIP is disabled this destructor does nothing.
     ~Buffer();
@@ -267,6 +276,29 @@ class Buffer : public Fw::Serializable {
     //! \param context: user-specified context to track creation. Default: no context
     void set(U8* data, FwSizeType size, U32 context = NO_CONTEXT);
 
+    //! Declare this buffer answerable for the memory it wraps
+    //!
+    //! Marks the buffer OWNED. Whoever hands out an allocation calls this on the buffer it hands out -- a buffer
+    //! manager on the buffer it returns from a get, a driver on a buffer it allocated -- so that dropping that
+    //! buffer without disposing of it is caught rather than silently leaking the allocation.
+    //!
+    //! It is invalid to claim a buffer that refers to no data.
+    void claim();
+
+    //! Give up this buffer's claim on the memory it wraps
+    //!
+    //! Marks the buffer NOT_OWNED, leaving everything else -- data pointer, offset, size, capacity, context --
+    //! untouched. The memory itself is not freed: `release()` states that this buffer is no longer answerable for
+    //! it. Call it once the allocation has been returned to its manager, or handed off by raw pointer.
+    //!
+    //! Calling this on a buffer that was never claimed is a no-op. Under FW_BUFFER_STRICT_OWNERSHIP this is how an
+    //! owning buffer is made safe to destroy, short of moving it on to the next owner.
+    void release();
+
+    //! Return whether this buffer is answerable for the memory it wraps
+    //! \return OWNED if this buffer has claimed the allocation, NOT_OWNED otherwise
+    OwnershipState getOwnershipState() const;
+
     //! Construct a second buffer over the same wrapped data, deliberately
     //!
     //! Strict ownership forbids implicit copies so that handing a buffer on is always visible in the source. It does
@@ -274,22 +306,13 @@ class Buffer : public Fw::Serializable {
     //! keeping a record of what it handed out, a test recording what it observed, a wrapper aliasing a buffer it was
     //! given by reference. `alias()` is that operation, spelled out so it can be found and reviewed.
     //!
-    //! The returned buffer is indistinguishable from this one: same original pointer, offset, size, capacity, and
-    //! context. Nothing tracks which of the two is responsible for the memory; that remains the caller's problem.
-    //! Under FW_BUFFER_STRICT_OWNERSHIP both buffers must be moved from or released before they are destroyed.
+    //! The returned buffer refers to the same memory with the same original pointer, offset, size, capacity, and
+    //! context, but it is always NOT_OWNED: an alias is another reference, not another owner. Responsibility for the
+    //! allocation stays exactly where it was, and destroying the alias is silent even under
+    //! FW_BUFFER_STRICT_OWNERSHIP.
     //!
-    //! \return a buffer referring to the same wrapped data as this one
+    //! \return a non-owning buffer referring to the same wrapped data as this one
     Buffer alias() const;
-
-    //! Give up this buffer's claim on the wrapped data, resetting it to the default-constructed state
-    //!
-    //! Resets the data pointer, offset, size, and capacity to zero and the context to NO_CONTEXT. The wrapped memory
-    //! itself is untouched: `release()` states that this buffer is no longer responsible for it, not that it has been
-    //! freed. This is what a move does to its source, and what the owner of a buffer calls once the buffer has been
-    //! returned to its manager or its memory handed off by raw pointer.
-    //!
-    //! Under FW_BUFFER_STRICT_OWNERSHIP this is how a buffer is made safe to destroy.
-    void release();
 
 #if FW_SERIALIZABLE_TO_STRING || BUILD_UT
     //! Supports writing this buffer to a string representation
@@ -303,12 +326,18 @@ class Buffer : public Fw::Serializable {
 #endif
 
   private:
+    //! Reset this buffer to the default-constructed state, giving up any claim, without touching the wrapped memory
+    //!
+    //! Used to empty the source of a move so that only the destination refers to the wrapped data.
+    void reset();
+
     Fw::ExternalSerializeBuffer m_serialize_repr;  //<! Representation for serialization and deserialization functions
     U8* m_bufferData;                              //<! data - A pointer to the original allocation
     FwSizeType m_offset;                           //<! offset - Offset of the current data within the allocation
     FwSizeType m_size;                             //<! size - The data size in bytes
     FwSizeType m_capacity;                         //<! capacity - Size of the original allocation in bytes
     U32 m_context;                                 //!< Creation context for disposal
+    OwnershipState m_ownership;                    //!< Whether this buffer is answerable for the wrapped memory
 };
 }  // end namespace Fw
 #endif /* BUFFER_HPP_ */

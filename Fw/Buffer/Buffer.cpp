@@ -27,7 +27,8 @@ Buffer::Buffer()
       m_offset(0),
       m_size(0),
       m_capacity(0),
-      m_context(0xFFFFFFFF) {}
+      m_context(0xFFFFFFFF),
+      m_ownership(OwnershipState::NOT_OWNED) {}
 
 #if !FW_BUFFER_STRICT_OWNERSHIP
 Buffer::Buffer(const Buffer& src)
@@ -37,7 +38,9 @@ Buffer::Buffer(const Buffer& src)
       m_offset(src.m_offset),
       m_size(src.m_size),
       m_capacity(src.m_capacity),
-      m_context(src.m_context) {
+      m_context(src.m_context),
+      // A copy is another reference to the allocation, not another owner
+      m_ownership(OwnershipState::NOT_OWNED) {
     if (src.m_bufferData != nullptr) {
         this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
     }
@@ -51,12 +54,14 @@ Buffer::Buffer(Buffer&& src)
       m_offset(src.m_offset),
       m_size(src.m_size),
       m_capacity(src.m_capacity),
-      m_context(src.m_context) {
+      m_context(src.m_context),
+      // A move hands over responsibility along with the data
+      m_ownership(src.m_ownership) {
     if (this->m_bufferData != nullptr) {
         this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
     }
     // Only this buffer may refer to the wrapped data once the move completes
-    src.release();
+    src.reset();
 }
 
 Buffer::Buffer(U8* data, FwSizeType size, U32 context)
@@ -66,7 +71,8 @@ Buffer::Buffer(U8* data, FwSizeType size, U32 context)
       m_offset(0),
       m_size(size),
       m_capacity(size),
-      m_context(context) {
+      m_context(context),
+      m_ownership(OwnershipState::NOT_OWNED) {
     if (m_bufferData != nullptr) {
         this->m_serialize_repr.setExtBuffer(this->m_bufferData, this->m_size);
     }
@@ -81,6 +87,8 @@ Buffer& Buffer::operator=(const Buffer& src) {
         this->m_size = src.m_size;
         this->m_capacity = src.m_capacity;
         this->m_context = src.m_context;
+        // A copy is another reference to the allocation, not another owner
+        this->m_ownership = OwnershipState::NOT_OWNED;
         if (this->m_bufferData != nullptr) {
             this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
         }
@@ -97,22 +105,24 @@ Buffer& Buffer::operator=(Buffer&& src) {
         this->m_size = src.m_size;
         this->m_capacity = src.m_capacity;
         this->m_context = src.m_context;
+        // A move hands over responsibility along with the data
+        this->m_ownership = src.m_ownership;
         if (this->m_bufferData != nullptr) {
             this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
         } else {
             this->m_serialize_repr.clear();
         }
         // Only this buffer may refer to the wrapped data once the move completes
-        src.release();
+        src.reset();
     }
     return *this;
 }
 
 Buffer::~Buffer() {
 #if FW_BUFFER_STRICT_OWNERSHIP
-    // A buffer still referring to data at destruction was neither moved on nor released: its allocation has been
-    // dropped. Call release() on buffers that are only views onto memory owned elsewhere.
-    FW_ASSERT(this->m_bufferData == nullptr,
+    // An OWNED buffer at destruction was neither moved on to another owner nor released, so nobody returned its
+    // allocation. Aliases and other non-owning references pass silently: they had nothing to return.
+    FW_ASSERT(this->m_ownership == OwnershipState::NOT_OWNED,
               static_cast<FwAssertArgType>(reinterpret_cast<PlatformPointerCastType>(this->m_bufferData)),
               static_cast<FwAssertArgType>(this->m_size), static_cast<FwAssertArgType>(this->m_context));
 #endif
@@ -124,6 +134,7 @@ bool Buffer::operator==(const Buffer& src) const {
 }
 
 Buffer Buffer::alias() const {
+    // Deliberately leaves m_ownership at NOT_OWNED: an alias is another reference, not another owner
     Buffer aliased;
     aliased.m_bufferData = this->m_bufferData;
     aliased.m_offset = this->m_offset;
@@ -136,12 +147,26 @@ Buffer Buffer::alias() const {
     return aliased;
 }
 
+void Buffer::claim() {
+    FW_ASSERT(this->isValid());
+    this->m_ownership = OwnershipState::OWNED;
+}
+
 void Buffer::release() {
+    this->m_ownership = OwnershipState::NOT_OWNED;
+}
+
+Buffer::OwnershipState Buffer::getOwnershipState() const {
+    return this->m_ownership;
+}
+
+void Buffer::reset() {
     this->m_bufferData = nullptr;
     this->m_offset = 0;
     this->m_size = 0;
     this->m_capacity = 0;
     this->m_context = NO_CONTEXT;
+    this->m_ownership = OwnershipState::NOT_OWNED;
     this->m_serialize_repr.clear();
 }
 
@@ -212,6 +237,10 @@ void Buffer::setContext(const U32 context) {
 }
 
 void Buffer::set(U8* const data, const FwSizeType size, const U32 context) {
+#if FW_BUFFER_STRICT_OWNERSHIP
+    // Pointing an owning buffer at different memory drops the allocation it was answerable for
+    FW_ASSERT(this->m_ownership == OwnershipState::NOT_OWNED);
+#endif
     this->m_bufferData = data;
     this->m_offset = 0;
     this->m_size = size;
@@ -293,6 +322,10 @@ Fw::SerializeStatus Buffer::deserializeFrom(Fw::SerialBufferBase& buffer, Fw::En
     if (stat != Fw::FW_SERIALIZE_OK) {
         return stat;
     }
+
+    // Ownership is a local property and is not carried on the wire: a deserialized buffer is a reference until
+    // something in this address space claims it
+    this->m_ownership = OwnershipState::NOT_OWNED;
 
     if (this->m_bufferData != nullptr) {
         this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);

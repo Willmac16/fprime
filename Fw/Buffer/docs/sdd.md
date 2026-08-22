@@ -92,48 +92,67 @@ of a function returning `Fw::Buffer`.
 A moved-from buffer is reset, not poisoned: calling `set()` on it, or assigning another buffer to it, makes it usable
 again. Self-move-assignment is a no-op and leaves the buffer unchanged.
 
-`release()` performs the same reset on demand: it states that this buffer is no longer responsible for the memory it
-wraps, without freeing anything. Use it where a buffer's memory has been handed off by some means other than a move --
-returned to its manager, or passed on as a raw pointer.
+`release()` states that this buffer is no longer answerable for the memory it wraps, without freeing anything or
+disturbing what the buffer refers to. Use it where an allocation has been disposed of by some means other than a move
+-- returned to its manager, or handed on as a raw pointer. See the next section for what ownership means.
 
 #### 2.1.3 Strict Ownership (`FW_BUFFER_STRICT_OWNERSHIP`)
 
 By default a copy of an `Fw::Buffer` is perfectly legal, and so is letting a buffer holding an allocation go out of
 scope. Both are how buffer leaks and double-returns happen, and neither leaves any trace. The
-`FW_BUFFER_STRICT_OWNERSHIP` setting in `config/FpConfig.h` turns both into failures:
+`FW_BUFFER_STRICT_OWNERSHIP` setting in `config/FpConfig.h` turns both into failures.
+
+##### Ownership is a property of the buffer, not of the data
+
+`Fw::Buffer` carries an `OwnershipState`: a buffer is `NOT_OWNED` unless something calls `claim()` on it. At most one
+buffer referring to a given allocation should be `OWNED`, and that one is answerable for returning it.
+
+| Operation | Effect on ownership |
+|---|---|
+| `claim()` | Marks this buffer `OWNED`. Whoever hands out an allocation calls it on what it hands out. |
+| `release()` | Marks this buffer `NOT_OWNED`, leaving the data pointer, offset, size, capacity, and context alone. States that the allocation has been disposed of, not that it has been freed. |
+| move | Carries the state to the destination; the source is emptied and left `NOT_OWNED`. |
+| copy / `alias()` | Result is always `NOT_OWNED`. Another reference is not another owner. |
+| deserialization | Result is `NOT_OWNED`. Ownership is a local property and is not carried on the wire. |
+
+This is what makes the destructor check worth having. Keying it on whether the buffer refers to data instead would
+make an owner indistinguishable from an alias, so every alias would need silencing — and the silencing would hide
+real leaks just as effectively. Reference counting would answer the same question, but a count cannot survive being
+serialized into a message queue on an async port hop, and shared mutable state in a value type passed through every
+port in the system is not a trade F´ should make.
+
+##### What changes when the setting is on
 
 | | Default (`0`) | Strict (`1`) |
 |---|---|---|
 | `Fw::Buffer b = other;` | Compiles; both refer to the allocation | **Build error**: copy constructor is deleted |
 | `b = other;` | Compiles; both refer to the allocation | **Build error**: copy assignment is deleted |
-| `b = Fw::move(other);` | Transfers; `other` left empty | Same |
-| Destroying a buffer that still refers to data | Silent | **Assertion failure** |
-| Destroying a moved-from or `release()`d buffer | Silent | Silent |
+| `b = other.alias();` | Second reference, `NOT_OWNED` | Same |
+| `b = Fw::move(other);` | Transfers data and ownership; `other` left empty | Same |
+| Destroying an `OWNED` buffer | Silent | **Assertion failure** |
+| Destroying a `NOT_OWNED` buffer | Silent | Silent, however much data it refers to |
+| `set()` on an `OWNED` buffer | Silent | **Assertion failure**: it would drop the allocation |
 
-Under strict ownership a buffer has exactly one holder at a time, and that holder must dispose of it deliberately.
-Disposal is either a move to the next holder or a call to `release()`, which resets the buffer to the
-default-constructed state without touching the wrapped memory. `release()` is available in both configurations, so
-code can be written once and built either way:
-
-```c++
-Fw::Buffer buffer = this->allocate_out(0, size);
-// ... fill the buffer, hand it to the component that will return it ...
-buffer.release();  // this scope is no longer responsible for the allocation
-```
-
-Deliberately holding two references to one allocation is still possible under strict ownership -- a manager keeping a
-record of what it handed out, a test recording what it observed -- but it has to be written out with `alias()`. What
-the setting removes is *implicit* duplication, not aliasing:
+`claim()`, `release()`, `alias()`, and `getOwnershipState()` are available in both configurations, so components can
+be written once and built either way. `Svc::BufferManager` already uses them: it claims the buffer it returns from
+`bufferGetCallee`, and releases the one handed back on `bufferSendIn`.
 
 ```c++
-Fw::Buffer record = handedOut.alias();  // deliberate, greppable, reviewable
-Fw::Buffer oops = handedOut;            // build error under strict ownership
+// Hand out an allocation
+Fw::Buffer allocated(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
+allocated.claim();     // the caller is answerable for this until it comes back
+return allocated;
+
+// Record what was handed out without becoming a second owner
+Fw::Buffer record = allocated.alias();
 ```
 
-The setting is off by default. Every hand-written translation unit in F Prime -- flight code and unit tests alike --
-compiles with it enabled; what does not is code emitted by `fpp-to-cpp`. Roughly forty generated translation units
-copy `Fw::Buffer`, and generated async port dispatch destroys a still-loaded buffer after calling the handler. The
-full list, and what the autocoder would have to emit instead, is documented against the macro in `config/FpConfig.h`.
+##### Status
+
+The setting is off by default. Every hand-written translation unit in F´ — flight code and unit tests alike —
+compiles with it enabled; what does not is code emitted by `fpp-to-cpp`, which copy-assigns `Fw::Buffer` in generated
+test harnesses, in serializable types with an `Fw.Buffer` member, and when constructing `Fw::DpContainer`. That list,
+and the two runtime caveats around async port hops, are documented against the macro in `config/FpConfig.h`.
 
 `Fw::Buffer`'s behavior under the setting is covered by `Fw_Buffer_strict_ownership_ut_exe`, a separate test
 executable compiled with the macro on, which is always built and run.

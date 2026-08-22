@@ -50,8 +50,7 @@ void BufferManagerComponentImpl ::cleanup() {
     if (not this->m_cleaned) {
         // walk through Fw::Buffer instances and delete them
         for (U16 entry = 0; entry < this->m_numStructs; entry++) {
-            // The bin's record is bookkeeping, not an outstanding allocation: give up its claim before destroying it
-            this->m_buffers[entry].buff.release();
+            // The bin's record is bookkeeping rather than an outstanding allocation, so it was never claimed
             this->m_buffers[entry].buff.~Buffer();
         }
         this->m_cleaned = true;
@@ -99,6 +98,8 @@ void BufferManagerComponentImpl ::bufferSendIn_handler(const FwIndexType portNum
     // clear the allocated flag
     this->m_buffers[id].allocated = false;
     this->m_currBuffs--;
+    // The allocation is back in the pool, so the caller's buffer is answerable for it no longer
+    fwBuffer.release();
 }
 
 Fw::Buffer BufferManagerComponentImpl ::bufferGetCallee_handler(const FwIndexType portNum, Fw::Buffer::SizeType size) {
@@ -119,6 +120,8 @@ Fw::Buffer BufferManagerComponentImpl ::bufferGetCallee_handler(const FwIndexTyp
             Fw::Buffer allocated(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
             // change size to match request
             allocated.setSize(size);
+            // The caller is answerable for this allocation until it comes back through bufferSendIn
+            allocated.claim();
             return allocated;
         }
     }

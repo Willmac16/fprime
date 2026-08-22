@@ -146,13 +146,20 @@ extern "C" {
 // Enforce single-ownership semantics on Fw::Buffer.
 //
 // When enabled, Fw::Buffer becomes move-only -- its copy constructor and copy assignment operator are deleted -- and
-// its destructor asserts unless the buffer was emptied first, either by being moved from or by an explicit
-// Fw::Buffer::release(). Together these turn two silent buffer-ownership mistakes into a build error and an
-// assertion: keeping a second reference to a buffer that was handed off, and dropping a buffer without returning it
-// to its manager.
+// its destructor asserts if the buffer is still OWNED. Together these turn two silent buffer-ownership mistakes into
+// a build error and an assertion: keeping a second reference to a buffer that was handed off, and dropping a buffer
+// without returning it to its manager.
 //
-// Deliberately holding two references to one allocation is still possible, but has to be written out: see
-// Fw::Buffer::alias(). Implicit duplication is what this setting removes, not aliasing itself.
+// Ownership is a single bit on the buffer, Fw::Buffer::OwnershipState, and the check keys on it rather than on
+// whether the buffer refers to data. That distinction is what makes the check worth having. Several buffers may
+// legitimately refer to one allocation -- a manager keeping a record of what it handed out, a test recording what it
+// observed -- and a check keyed on data could not tell those apart from the owner, so every one of them would have
+// to be silenced, and the silencing would hide real leaks just as well.
+//
+// So: Fw::Buffer::claim() declares a buffer answerable for its allocation, release() gives that up, a move carries it
+// to the destination, and a copy or Fw::Buffer::alias() produces a further reference that is never an owner.
+// Ownership does not survive serialization, so a buffer that arrives over an async port is a reference until
+// something in this address space claims it.
 //
 // All of F Prime's own hand-written source -- flight code and unit tests alike -- compiles with this enabled. What
 // does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:
@@ -163,18 +170,17 @@ extern "C" {
 //      constructor and copy assignment operator.
 //   3. Component code builds Fw::DpContainer from an lvalue Fw::Buffer (`DpContainer(globalId, buffer, baseId)`),
 //      which forces Fw::DpContainer::setBuffer to alias rather than take the buffer.
-//   4. Async port dispatch deserializes into a local Fw::Buffer, passes it to the handler by reference, and then
-//      destroys it. Even once the above compile, that local is destroyed still holding the buffer and the destructor
-//      assertion trips, so buffers cannot cross an async port hop until dispatch releases the local after the
-//      handler returns.
-//   5. Some handler signatures take `const Fw::Buffer&`, which cannot be forwarded to an output port without an
-//      alias (see Svc::DpManager::productSendIn_handler).
 //
-// Items 1-3 are compile-time blockers; item 4 is a runtime one; item 5 is a wart that an alias works around today.
-// Fw::Buffer's own behavior under this setting is covered by Fw_Buffer_strict_ownership_ut_exe, which is always
-// built and run.
+// Two things are worth knowing before relying on the runtime check:
+//
+//   - A component that hands a buffer to an async port must release() it afterwards. The port call serializes the
+//     buffer into a queue rather than taking it, so the sender is still the owner as far as its own buffer is
+//     concerned. Async dispatch on the far side deserializes into a local that is NOT_OWNED and destroys it, which
+//     is silent and correct.
+//   - Because ownership does not cross that queue, a buffer leaked by the component on the far side of an async hop
+//     is not caught unless that component claims it on arrival.
 #ifndef FW_BUFFER_STRICT_OWNERSHIP
-#define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when a non-empty buffer is destroyed
+#define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when an owned buffer is destroyed
 #endif
 
 // Posix thread names are limited to 16 characters, this can lead to collisions. In the event of a
