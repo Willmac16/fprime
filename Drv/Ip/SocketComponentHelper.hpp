@@ -222,7 +222,7 @@ class SocketComponentHelper {
      *
      * \return Fw::Buffer filled with data to send out
      */
-    virtual void sendBuffer(Fw::Buffer buffer, SocketIpStatus status) = 0;
+    virtual void sendBuffer(Fw::Buffer&& buffer, SocketIpStatus status) = 0;
 
     /**
      * \brief called when the IPv4 system has been connected

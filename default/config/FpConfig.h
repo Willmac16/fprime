@@ -143,6 +143,36 @@ extern "C" {
 #define FW_AMPCS_COMPATIBLE (0)  //!< Whether or not JPL AMPCS ground system support is enabled.
 #endif
 
+// Enforce single-ownership semantics on Fw::Buffer.
+//
+// When enabled, Fw::Buffer becomes move-only -- its copy constructor and copy assignment operator are deleted, so the
+// only way to hand a buffer on is std::move -- and its destructor asserts unless the buffer has been emptied first,
+// either by being moved from or by an explicit Fw::Buffer::release(). Together these turn two silent buffer-ownership
+// mistakes into build errors and assertions: keeping a second reference to a buffer that was handed off, and dropping
+// a buffer without returning it to its manager.
+//
+// This is off by default, and turning it on today does not yield a working build. It is the switch for a migration
+// that is not finished. What still has to change first:
+//
+//   1. `fpp-to-cpp` emits copies of Fw::Buffer that this repository cannot edit. Generated unit-test harnesses
+//      (`*TesterBase.cpp`, `*GTestBase.cpp`) copy port arguments into history entries; generated serializable types
+//      with an Fw.Buffer member (Svc::ComDataContextPair) copy in their constructors and assignment operators; and
+//      generated component code constructs Fw::DpContainer from an lvalue Fw::Buffer.
+//   2. Generated async port dispatch deserializes into a local Fw::Buffer, passes it to the handler by reference and
+//      then destroys it. Unless the handler moves out of its argument, that local is destroyed still holding the
+//      buffer and the destructor assertion trips, so buffers cannot cross an async port hop until the autocoder
+//      releases the dispatch local after the handler returns.
+//   3. Some generated handler signatures take `const Fw::Buffer&`, which cannot be forwarded to an output port
+//      without a copy (see Svc::DpManager::productSendIn_handler).
+//   4. Within F Prime itself, Fw::DpContainer and its users (Svc::DpWriter, Svc::DpCatalog, Svc::DpCompressProc,
+//      Svc::FileManager) and Svc::ComRetry still copy buffers and need an ownership decision of their own.
+//
+// The rest of F Prime's non-generated flight code builds cleanly with this enabled. Fw::Buffer's own behavior under
+// this setting is covered by Fw_Buffer_strict_ownership_ut_exe, which is always built and run.
+#ifndef FW_BUFFER_STRICT_OWNERSHIP
+#define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when a non-empty buffer is destroyed
+#endif
+
 // Posix thread names are limited to 16 characters, this can lead to collisions. In the event of a
 // collision, set this to 0.
 #ifndef POSIX_THREADS_ENABLE_NAMES

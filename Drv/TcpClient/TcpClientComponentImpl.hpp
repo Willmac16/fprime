@@ -103,7 +103,7 @@ class TcpClientComponentImpl final : public TcpClientComponentBase, public Socke
      *
      * \return Fw::Buffer filled with data to send out
      */
-    void sendBuffer(Fw::Buffer buffer, SocketIpStatus status) override;
+    void sendBuffer(Fw::Buffer&& buffer, SocketIpStatus status) override;
 
     /**
      * \brief called when the IPv4 system has been connected

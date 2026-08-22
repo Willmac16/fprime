@@ -50,6 +50,8 @@ void BufferManagerComponentImpl ::cleanup() {
     if (not this->m_cleaned) {
         // walk through Fw::Buffer instances and delete them
         for (U16 entry = 0; entry < this->m_numStructs; entry++) {
+            // The bin's record is bookkeeping, not an outstanding allocation: give up its claim before destroying it
+            this->m_buffers[entry].buff.release();
             this->m_buffers[entry].buff.~Buffer();
         }
         this->m_cleaned = true;
@@ -111,10 +113,13 @@ Fw::Buffer BufferManagerComponentImpl ::bufferGetCallee_handler(const FwIndexTyp
             if (this->m_currBuffs > this->m_highWater) {
                 this->m_highWater = this->m_currBuffs;
             }
-            Fw::Buffer copy = this->m_buffers[buff].buff;
+            // Hand out a fresh buffer over the bin's allocation rather than a copy of the bin's own record:
+            // the manager keeps its record, the caller gets the only buffer referring to that memory.
+            const Fw::Buffer& binBuffer = this->m_buffers[buff].buff;
+            Fw::Buffer allocated(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
             // change size to match request
-            copy.setSize(size);
-            return copy;
+            allocated.setSize(size);
+            return allocated;
         }
     }
 

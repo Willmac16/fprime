@@ -77,9 +77,17 @@ class Buffer : public Fw::Serializable {
     //! and data pointers are zeroed-out.
     Buffer();
 
+#if FW_BUFFER_STRICT_OWNERSHIP
+    //! Copy construction is disabled: a buffer may only be handed on by moving it
+    //!
+    //! See FW_BUFFER_STRICT_OWNERSHIP in FpConfig.h. Take a `const Buffer&` to inspect a buffer without claiming it,
+    //! and `std::move` to hand it on.
+    Buffer(const Buffer& src) = delete;
+#else
     //! Construct a buffer by copying members from a reference to another buffer. Does not copy wrapped data.
     //!
     Buffer(const Buffer& src);
+#endif
 
     //! Construct a buffer by transferring the wrapped data from another buffer
     //!
@@ -105,9 +113,16 @@ class Buffer : public Fw::Serializable {
     //! \param context: user-specified context to track creation. Default: no context
     Buffer(U8* data, FwSizeType size, U32 context = NO_CONTEXT);
 
+#if FW_BUFFER_STRICT_OWNERSHIP
+    //! Copy assignment is disabled: a buffer may only be handed on by moving it
+    //!
+    //! See FW_BUFFER_STRICT_OWNERSHIP in FpConfig.h.
+    Buffer& operator=(const Buffer& src) = delete;
+#else
     //! Assignment operator to set given buffer's members from another without copying wrapped data
     //!
     Buffer& operator=(const Buffer& src);
+#endif
 
     //! Move assignment operator transferring the wrapped data from another buffer
     //!
@@ -118,6 +133,16 @@ class Buffer : public Fw::Serializable {
     //! \param src: buffer to transfer the wrapped data from
     //! \return reference to this buffer
     Buffer& operator=(Buffer&& src);
+
+    //! Destroy this buffer
+    //!
+    //! When FW_BUFFER_STRICT_OWNERSHIP is enabled, destroying a buffer that still refers to wrapped data is a
+    //! programming error and asserts: the buffer was neither moved on to another owner nor explicitly released, so
+    //! whatever allocation it referred to has been dropped on the floor. Empty the buffer with `release()` before it
+    //! goes out of scope when this buffer was only ever a view onto memory owned elsewhere.
+    //!
+    //! When FW_BUFFER_STRICT_OWNERSHIP is disabled this destructor does nothing.
+    ~Buffer();
 
     //! Equality operator returning true when buffers are equivalent
     //!
@@ -242,6 +267,16 @@ class Buffer : public Fw::Serializable {
     //! \param context: user-specified context to track creation. Default: no context
     void set(U8* data, FwSizeType size, U32 context = NO_CONTEXT);
 
+    //! Give up this buffer's claim on the wrapped data, resetting it to the default-constructed state
+    //!
+    //! Resets the data pointer, offset, size, and capacity to zero and the context to NO_CONTEXT. The wrapped memory
+    //! itself is untouched: `release()` states that this buffer is no longer responsible for it, not that it has been
+    //! freed. This is what a move does to its source, and what the owner of a buffer calls once the buffer has been
+    //! returned to its manager or its memory handed off by raw pointer.
+    //!
+    //! Under FW_BUFFER_STRICT_OWNERSHIP this is how a buffer is made safe to destroy.
+    void release();
+
 #if FW_SERIALIZABLE_TO_STRING || BUILD_UT
     //! Supports writing this buffer to a string representation
     void toString(Fw::StringBase& text) const;
@@ -254,11 +289,6 @@ class Buffer : public Fw::Serializable {
 #endif
 
   private:
-    //! Reset this buffer to the default-constructed state without touching the wrapped data
-    //!
-    //! Used to invalidate the source of a move so that only one buffer refers to the wrapped data.
-    void invalidate();
-
     Fw::ExternalSerializeBuffer m_serialize_repr;  //<! Representation for serialization and deserialization functions
     U8* m_bufferData;                              //<! data - A pointer to the original allocation
     FwSizeType m_offset;                           //<! offset - Offset of the current data within the allocation

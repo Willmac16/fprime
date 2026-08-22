@@ -69,7 +69,8 @@ void BufferAccumulator ::deallocateQueue(Fw::MemAllocator& allocator) {
 // ----------------------------------------------------------------------
 
 void BufferAccumulator ::bufferSendInFill_handler(const FwIndexType portNum, Fw::Buffer& buffer) {
-    const bool status = this->m_bufferQueue.enqueue(buffer);
+    // Hand the buffer to the queue; on failure it stays with this component and is returned below
+    const bool status = this->m_bufferQueue.enqueue(std::move(buffer));
     if (status) {
         if (this->m_numWarnings > 0) {
             this->log_ACTIVITY_HI_BA_BufferAccepted();

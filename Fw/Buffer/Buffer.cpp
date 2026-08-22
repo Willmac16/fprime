@@ -29,6 +29,7 @@ Buffer::Buffer()
       m_capacity(0),
       m_context(0xFFFFFFFF) {}
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
 Buffer::Buffer(const Buffer& src)
     : Serializable(),
       m_serialize_repr(),
@@ -41,6 +42,7 @@ Buffer::Buffer(const Buffer& src)
         this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
     }
 }
+#endif
 
 Buffer::Buffer(Buffer&& src)
     : Serializable(),
@@ -54,7 +56,7 @@ Buffer::Buffer(Buffer&& src)
         this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
     }
     // Only this buffer may refer to the wrapped data once the move completes
-    src.invalidate();
+    src.release();
 }
 
 Buffer::Buffer(U8* data, FwSizeType size, U32 context)
@@ -70,6 +72,7 @@ Buffer::Buffer(U8* data, FwSizeType size, U32 context)
     }
 }
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
 Buffer& Buffer::operator=(const Buffer& src) {
     // Ward against self-assignment
     if (this != &src) {
@@ -84,6 +87,7 @@ Buffer& Buffer::operator=(const Buffer& src) {
     }
     return *this;
 }
+#endif
 
 Buffer& Buffer::operator=(Buffer&& src) {
     // Ward against self-assignment: a self-move must not invalidate this buffer
@@ -99,9 +103,19 @@ Buffer& Buffer::operator=(Buffer&& src) {
             this->m_serialize_repr.clear();
         }
         // Only this buffer may refer to the wrapped data once the move completes
-        src.invalidate();
+        src.release();
     }
     return *this;
+}
+
+Buffer::~Buffer() {
+#if FW_BUFFER_STRICT_OWNERSHIP
+    // A buffer still referring to data at destruction was neither moved on nor released: its allocation has been
+    // dropped. Call release() on buffers that are only views onto memory owned elsewhere.
+    FW_ASSERT(this->m_bufferData == nullptr,
+              static_cast<FwAssertArgType>(reinterpret_cast<PlatformPointerCastType>(this->m_bufferData)),
+              static_cast<FwAssertArgType>(this->m_size), static_cast<FwAssertArgType>(this->m_context));
+#endif
 }
 
 bool Buffer::operator==(const Buffer& src) const {
@@ -109,7 +123,7 @@ bool Buffer::operator==(const Buffer& src) const {
            (this->m_size == src.m_size) && (this->m_capacity == src.m_capacity) && (this->m_context == src.m_context);
 }
 
-void Buffer::invalidate() {
+void Buffer::release() {
     this->m_bufferData = nullptr;
     this->m_offset = 0;
     this->m_size = 0;

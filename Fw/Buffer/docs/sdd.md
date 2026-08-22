@@ -92,6 +92,42 @@ of a function returning `Fw::Buffer`.
 A moved-from buffer is reset, not poisoned: calling `set()` on it, or assigning another buffer to it, makes it usable
 again. Self-move-assignment is a no-op and leaves the buffer unchanged.
 
+`release()` performs the same reset on demand: it states that this buffer is no longer responsible for the memory it
+wraps, without freeing anything. Use it where a buffer's memory has been handed off by some means other than a move --
+returned to its manager, or passed on as a raw pointer.
+
+#### 2.1.3 Strict Ownership (`FW_BUFFER_STRICT_OWNERSHIP`)
+
+By default a copy of an `Fw::Buffer` is perfectly legal, and so is letting a buffer holding an allocation go out of
+scope. Both are how buffer leaks and double-returns happen, and neither leaves any trace. The
+`FW_BUFFER_STRICT_OWNERSHIP` setting in `config/FpConfig.h` turns both into failures:
+
+| | Default (`0`) | Strict (`1`) |
+|---|---|---|
+| `Fw::Buffer b = other;` | Compiles; both refer to the allocation | **Build error**: copy constructor is deleted |
+| `b = other;` | Compiles; both refer to the allocation | **Build error**: copy assignment is deleted |
+| `b = std::move(other);` | Transfers; `other` left empty | Same |
+| Destroying a buffer that still refers to data | Silent | **Assertion failure** |
+| Destroying a moved-from or `release()`d buffer | Silent | Silent |
+
+Under strict ownership a buffer has exactly one holder at a time, and that holder must dispose of it deliberately.
+Disposal is either a move to the next holder or a call to `release()`, which resets the buffer to the
+default-constructed state without touching the wrapped memory. `release()` is available in both configurations, so
+code can be written once and built either way:
+
+```c++
+Fw::Buffer buffer = this->allocate_out(0, size);
+// ... fill the buffer, hand it to the component that will return it ...
+buffer.release();  // this scope is no longer responsible for the allocation
+```
+
+The setting is off by default and, as of this writing, **turning it on does not produce a working build**. The
+blocking work is listed against the macro in `config/FpConfig.h`; the short version is that `fpp-to-cpp` emits
+`Fw::Buffer` copies in generated test harnesses and in serializable types with an `Fw.Buffer` member, and generated
+async port dispatch destroys a still-loaded buffer after calling the handler. F Prime's own non-generated flight code
+builds cleanly with the setting enabled, and `Fw::Buffer`'s behavior under it is covered by
+`Fw_Buffer_strict_ownership_ut_exe`, a separate test executable compiled with the macro on.
+
 ### 2.2 The Port Fw::BufferGet
 
 As shown in the following diagram, `Fw::BufferGet` has one argument `size` of type `U32`. It returns a value of type
