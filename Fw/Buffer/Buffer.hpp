@@ -81,7 +81,7 @@ class Buffer : public Fw::Serializable {
     //! Copy construction is disabled: a buffer may only be handed on by moving it
     //!
     //! See FW_BUFFER_STRICT_OWNERSHIP in FpConfig.h. Take a `const Buffer&` to inspect a buffer without claiming it,
-    //! and `std::move` to hand it on.
+    //! `Fw::move` to hand it on, and `alias()` where a second reference is genuinely wanted.
     Buffer(const Buffer& src) = delete;
 #else
     //! Construct a buffer by copying members from a reference to another buffer. Does not copy wrapped data.

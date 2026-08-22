@@ -7,7 +7,7 @@
 #include <Os/SandboxedFile.hpp>
 #include <cstdio>
 #include <cstring>
-#include <utility>
+#include "Fw/LanguageHelpers.hpp"
 
 // ======================================================================
 // SandboxedFile tests
@@ -122,7 +122,7 @@ TEST_F(SandboxedFileTest, MoveConstructionCarriesFileAndSandbox) {
     source.configure("/tmp/sandbox_test/");
     ASSERT_EQ(Os::File::OP_OK, source.open("/tmp/sandbox_test/test_file.bin", Os::File::OPEN_CREATE));
 
-    Os::SandboxedFile destination(std::move(source));
+    Os::SandboxedFile destination(Fw::move(source));
 
     // The destination holds the open file and the sandbox it was configured with
     ASSERT_TRUE(destination.isOpen());
@@ -149,7 +149,7 @@ TEST_F(SandboxedFileTest, MoveAssignmentClosesDestinationFile) {
     Os::SandboxedFile destination;
     ASSERT_EQ(Os::File::OP_OK, destination.open("/tmp/sandbox_test/other_file.bin", Os::File::OPEN_CREATE));
 
-    destination = std::move(source);
+    destination = Fw::move(source);
 
     ASSERT_TRUE(destination.isOpen());
     ASSERT_STREQ("/tmp/sandbox_test/", destination.getSandboxDirectory());
@@ -167,9 +167,9 @@ TEST_F(SandboxedFileTest, SelfMoveAssignmentLeavesFileOpen) {
     file.configure("/tmp/sandbox_test/");
     ASSERT_EQ(Os::File::OP_OK, file.open("/tmp/sandbox_test/test_file.bin", Os::File::OPEN_CREATE));
 
-    // Assign through an alias so this is a genuine self-move rather than a diagnosable `x = std::move(x)`
+    // Assign through an alias so this is a genuine self-move rather than a directly diagnosable one
     Os::SandboxedFile* alias = &file;
-    file = std::move(*alias);
+    file = Fw::move(*alias);
 
     ASSERT_TRUE(file.isOpen());
     ASSERT_STREQ("/tmp/sandbox_test/", file.getSandboxDirectory());

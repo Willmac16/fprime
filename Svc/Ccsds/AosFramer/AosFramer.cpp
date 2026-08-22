@@ -6,7 +6,7 @@
 // ======================================================================
 
 #include "Svc/Ccsds/AosFramer/AosFramer.hpp"
-#include <utility>
+#include "Fw/LanguageHelpers.hpp"
 #include "Svc/Ccsds/Utils/CRC16.hpp"
 #include "config/FppConstantsAc.hpp"
 
@@ -333,7 +333,7 @@ void AosFramer ::pack_packet(Fw::Buffer& data, const ComCfg::FrameContext& conte
         currentVc.outstanding.offset = dataOffset + dataSize;
         // The remainder of this packet is now this framer's to finish; `dataStart` above still points at the memory.
         // Self-move is possible here: fill_with_idle_packet re-packs the outstanding packet through this function.
-        currentVc.outstanding.packet = std::move(data);
+        currentVc.outstanding.packet = Fw::move(data);
     }
 
     status = frameSerializer.serializeFrom(dataStart, dataSize, Fw::Serialization::OMIT_LENGTH);

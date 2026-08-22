@@ -11,7 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <list>
-#include <utility>
+#include "Fw/LanguageHelpers.hpp"
 #include "Os/File.hpp"
 #include "Os/Posix/File.hpp"
 #include "Os/test/ut/file/CommonTests.hpp"
@@ -293,7 +293,7 @@ TEST(PosixFileMoveSemantics, MoveConstructionTransfersDescriptor) {
     const int original_descriptor = descriptor_of(source);
     ASSERT_GE(original_descriptor, 0);
 
-    Os::File destination(std::move(source));
+    Os::File destination(Fw::move(source));
 
     // The destination holds the original descriptor: it was handed over, not duplicated
     EXPECT_EQ(descriptor_of(destination), original_descriptor);
@@ -328,7 +328,7 @@ TEST(PosixFileMoveSemantics, MoveAssignmentClosesDestinationAndTransfersDescript
     const int replaced_descriptor = descriptor_of(destination);
     ASSERT_NE(source_descriptor, replaced_descriptor);
 
-    destination = std::move(source);
+    destination = Fw::move(source);
 
     // The file the destination used to hold is closed rather than leaked
     EXPECT_FALSE(descriptor_open(replaced_descriptor));
@@ -350,7 +350,7 @@ TEST(PosixFileMoveSemantics, MovedFromFileIsReusable) {
 
     Os::File source;
     ASSERT_EQ(source.open(first_path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
-    Os::File destination(std::move(source));
+    Os::File destination(Fw::move(source));
     const int moved_descriptor = descriptor_of(destination);
 
     ASSERT_EQ(source.open(second_path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
@@ -372,9 +372,9 @@ TEST(PosixFileMoveSemantics, SelfMoveAssignmentLeavesFileOpen) {
     ASSERT_EQ(file.open(path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
     const int descriptor = descriptor_of(file);
 
-    // Assign through an alias so this is a genuine self-move rather than a diagnosable `x = std::move(x)`
+    // Assign through an alias so this is a genuine self-move rather than a directly diagnosable one
     Os::File* alias = &file;
-    file = std::move(*alias);
+    file = Fw::move(*alias);
 
     EXPECT_TRUE(file.isOpen());
     EXPECT_EQ(descriptor_of(file), descriptor);

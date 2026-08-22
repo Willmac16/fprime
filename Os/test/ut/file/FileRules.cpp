@@ -5,7 +5,7 @@
 #include <Fw/Types/String.hpp>
 #include <algorithm>
 #include <cstdio>
-#include <utility>
+#include "Fw/LanguageHelpers.hpp"
 #include "RulesHeaders.hpp"
 #include "STest/Pick/Pick.hpp"
 #include "Utils/Hash/Hash.hpp"
@@ -1122,11 +1122,11 @@ void Os::Test::FileTest::Tester::MoveAssignment::action(Os::Test::FileTest::Test
     state.assert_file_consistent();
     const bool was_open = state.m_file.isOpen();
     // Move out of the state's file: the file it held now belongs to temp
-    Os::File temp = std::move(state.m_file);
+    Os::File temp = Fw::move(state.m_file);
     ASSERT_EQ(temp.isOpen(), was_open);
     ASSERT_FALSE(state.m_file.isOpen());
     // Move it straight back so the shadow state applies to the state's file again
-    state.m_file = std::move(temp);
+    state.m_file = Fw::move(temp);
     ASSERT_FALSE(temp.isOpen());
     state.assert_file_consistent();
 }
@@ -1151,11 +1151,11 @@ void Os::Test::FileTest::Tester::MoveConstruction::action(Os::Test::FileTest::Te
     state.assert_file_consistent();
     const bool was_open = state.m_file.isOpen();
     // Move out of the state's file: the file it held now belongs to temp
-    Os::File temp(std::move(state.m_file));
+    Os::File temp(Fw::move(state.m_file));
     ASSERT_EQ(temp.isOpen(), was_open);
     ASSERT_FALSE(state.m_file.isOpen());
     // The moved-from file holds nothing, so constructing overtop of it orphans no handle
-    (void)new (&state.m_file) Os::File(std::move(temp));
+    (void)new (&state.m_file) Os::File(Fw::move(temp));
     ASSERT_FALSE(temp.isOpen());
     state.assert_file_consistent();
 }

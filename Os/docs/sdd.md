@@ -216,7 +216,7 @@ default-constructed state, ready to be reopened or destroyed.
 Os::File source;
 source.open("/path/to/file.bin", Os::File::OPEN_WRITE);
 
-Os::File destination(std::move(source));
+Os::File destination(Fw::move(source));
 // destination holds the open file; source.isOpen() == false
 ```
 

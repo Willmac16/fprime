@@ -158,7 +158,7 @@ extern "C" {
 // does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:
 //
 //   1. Unit-test harnesses (37 `*TesterBase.cpp`, 2 `*GTestBase.cpp`) copy-assign port arguments into history
-//      entries: `_e.fwBuffer = fwBuffer;`. These need `std::move(fwBuffer)` or an explicit alias.
+//      entries: `_e.fwBuffer = fwBuffer;`. These need `Fw::move(fwBuffer)` or an explicit alias.
 //   2. Serializable types with an Fw.Buffer member (Svc::ComDataContextPair) copy the member in their copy
 //      constructor and copy assignment operator.
 //   3. Component code builds Fw::DpContainer from an lvalue Fw::Buffer (`DpContainer(globalId, buffer, baseId)`),

@@ -80,7 +80,7 @@ undetectable. Prefer a move wherever a buffer is passed along rather than shared
 // Take custody of an incoming buffer for later return. The caller's buffer is left invalid, so it cannot
 // be returned or re-sent while this component still holds it.
 void MyComponent::bufferSendIn_handler(FwIndexType portNum, Fw::Buffer& buffer) {
-    this->m_heldBuffer = std::move(buffer);
+    this->m_heldBuffer = Fw::move(buffer);
     FW_ASSERT(not buffer.isValid());
 }
 ```
@@ -106,7 +106,7 @@ scope. Both are how buffer leaks and double-returns happen, and neither leaves a
 |---|---|---|
 | `Fw::Buffer b = other;` | Compiles; both refer to the allocation | **Build error**: copy constructor is deleted |
 | `b = other;` | Compiles; both refer to the allocation | **Build error**: copy assignment is deleted |
-| `b = std::move(other);` | Transfers; `other` left empty | Same |
+| `b = Fw::move(other);` | Transfers; `other` left empty | Same |
 | Destroying a buffer that still refers to data | Silent | **Assertion failure** |
 | Destroying a moved-from or `release()`d buffer | Silent | Silent |
 

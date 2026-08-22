@@ -15,6 +15,24 @@
 #include "Fw/Types/Assert.hpp"
 #include "Fw/Types/ByteArray.hpp"
 namespace Fw {
+//! \brief cast a value to an rvalue reference so that it can be moved from
+//!
+//! F Prime's equivalent of `std::move`. It exists because `std::move` lives in `<utility>`, which is not one of the
+//! headers a freestanding C++ implementation is required to provide; `<type_traits>`, used here, is. F Prime targets
+//! toolchains where that distinction matters, so framework code says `Fw::move` and leaves `<utility>` alone.
+//!
+//! Like `std::move`, this generates no code: it is a cast that selects a move constructor or move assignment
+//! operator at the call site. It does not itself move anything, and it is the callee that decides what to take. The
+//! argument must be treated as emptied once the call it feeds has returned.
+//!
+//! \tparam T deduced type of the value being cast
+//! \param value the value to cast
+//! \return an rvalue reference to `value`
+template <typename T>
+constexpr typename std::remove_reference<T>::type&& move(T&& value) {
+    return static_cast<typename std::remove_reference<T>::type&&>(value);
+}
+
 //! \brief placement new for arrays
 //!
 //! C++ as a language does not guaranteed that placement new for a C++ array of length N will fit within a memory

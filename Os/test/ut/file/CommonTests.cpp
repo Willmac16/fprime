@@ -4,7 +4,7 @@
 // ======================================================================
 #include "Os/test/ut/file/CommonTests.hpp"
 #include <gtest/gtest.h>
-#include <utility>
+#include "Fw/LanguageHelpers.hpp"
 #include "Os/File.hpp"
 
 static const U32 RANDOM_BOUND = 1000;
@@ -91,10 +91,10 @@ TEST_F(Functionality, MoveConstructor) {
 TEST_F(Functionality, MoveOfClosedFile) {
     Os::File source;
     ASSERT_FALSE(source.isOpen());
-    Os::File destination(std::move(source));
+    Os::File destination(Fw::move(source));
     ASSERT_FALSE(source.isOpen());
     ASSERT_FALSE(destination.isOpen());
-    destination = std::move(source);
+    destination = Fw::move(source);
     ASSERT_FALSE(source.isOpen());
     ASSERT_FALSE(destination.isOpen());
 }

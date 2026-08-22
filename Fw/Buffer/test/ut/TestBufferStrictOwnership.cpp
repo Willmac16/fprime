@@ -8,8 +8,8 @@
 #include <gtest/gtest.h>
 #include <Fw/FPrimeBasicTypes.hpp>
 #include <type_traits>
-#include <utility>
 #include "Fw/Buffer/Buffer.hpp"
+#include "Fw/LanguageHelpers.hpp"
 
 static_assert(FW_BUFFER_STRICT_OWNERSHIP,
               "This test executable is only meaningful with FW_BUFFER_STRICT_OWNERSHIP enabled");
@@ -60,7 +60,7 @@ TEST(StrictOwnership, ReleaseMakesBufferSafeToDestroy) {
 // Moving hands the data over: the destination must be released, the source must not
 TEST(StrictOwnership, MoveConstructionTransfersResponsibility) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    Fw::Buffer destination(std::move(source));
+    Fw::Buffer destination(Fw::move(source));
 
     ASSERT_TRUE(destination.isValid());
     ASSERT_EQ(destination.getOriginalData(), g_data);
@@ -74,7 +74,7 @@ TEST(StrictOwnership, MoveConstructionTransfersResponsibility) {
 TEST(StrictOwnership, MoveAssignmentTransfersResponsibility) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
     Fw::Buffer destination;
-    destination = std::move(source);
+    destination = Fw::move(source);
 
     ASSERT_TRUE(destination.isValid());
     ASSERT_EQ(destination.getOriginalData(), g_data);
@@ -86,7 +86,7 @@ TEST(StrictOwnership, MoveAssignmentTransfersResponsibility) {
 // A moved-from buffer is emptied, not poisoned: it can take hold of memory again
 TEST(StrictOwnership, MovedFromBufferIsReusable) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    Fw::Buffer destination(std::move(source));
+    Fw::Buffer destination(Fw::move(source));
 
     source.set(g_data, 8, 5678);
     ASSERT_TRUE(source.isValid());
@@ -99,9 +99,9 @@ TEST(StrictOwnership, MovedFromBufferIsReusable) {
 // Self-move must not empty the buffer out from under its only owner
 TEST(StrictOwnership, SelfMoveAssignmentKeepsTheBuffer) {
     Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    // Assign through an alias so this is a genuine self-move rather than a diagnosable `x = std::move(x)`
+    // Assign through an alias so this is a genuine self-move rather than a directly diagnosable one
     Fw::Buffer* alias = &buffer;
-    buffer = std::move(*alias);
+    buffer = Fw::move(*alias);
 
     ASSERT_TRUE(buffer.isValid());
     ASSERT_EQ(buffer.getOriginalData(), g_data);
@@ -113,9 +113,9 @@ TEST(StrictOwnership, SelfMoveAssignmentKeepsTheBuffer) {
 // Handing a buffer on down a chain of owners leaves exactly one of them holding it
 TEST(StrictOwnership, ChainedMovesLeaveOneOwner) {
     Fw::Buffer first(g_data, sizeof(g_data), 1234);
-    Fw::Buffer second(std::move(first));
+    Fw::Buffer second(Fw::move(first));
     Fw::Buffer third;
-    third = std::move(second);
+    third = Fw::move(second);
 
     ASSERT_FALSE(first.isValid());
     ASSERT_FALSE(second.isValid());
@@ -130,7 +130,7 @@ TEST(StrictOwnership, MovePreservesOffsetAndCapacity) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
     source.advance(7);
 
-    Fw::Buffer destination(std::move(source));
+    Fw::Buffer destination(Fw::move(source));
     ASSERT_EQ(destination.getOriginalData(), g_data);
     ASSERT_EQ(destination.getData(), g_data + 7);
     ASSERT_EQ(destination.getOffset(), 7);

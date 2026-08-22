@@ -3,8 +3,8 @@
 //
 #include <gtest/gtest.h>
 #include <Fw/FPrimeBasicTypes.hpp>
-#include <utility>
 #include "Fw/Buffer/Buffer.hpp"
+#include "Fw/LanguageHelpers.hpp"
 #include "Fw/Types/test/ut/LinearBufferBaseTester.hpp"
 
 namespace Fw {
@@ -133,7 +133,7 @@ class BufferTester {
         buffer.advance(7);
 
         // Move construction hands the wrapped data over wholesale
-        Fw::Buffer moved(std::move(buffer));
+        Fw::Buffer moved(Fw::move(buffer));
         ASSERT_EQ(moved.getOriginalData(), data);
         ASSERT_EQ(moved.getData(), data + 7);
         ASSERT_EQ(moved.getOffset(), 7);
@@ -157,7 +157,7 @@ class BufferTester {
 
         // Move assignment behaves the same way
         Fw::Buffer destination;
-        destination = std::move(moved);
+        destination = Fw::move(moved);
         ASSERT_EQ(destination.getOriginalData(), data);
         ASSERT_EQ(destination.getData(), data + 7);
         ASSERT_EQ(destination.getOffset(), 7);
@@ -177,7 +177,7 @@ class BufferTester {
 
         // Self-move-assignment leaves the buffer untouched rather than clearing it
         Fw::Buffer* alias = &destination;
-        destination = std::move(*alias);
+        destination = Fw::move(*alias);
         ASSERT_EQ(destination.getOriginalData(), data);
         ASSERT_EQ(destination.getOffset(), 7);
         ASSERT_EQ(destination.getSize(), sizeof(data) - 7);
@@ -185,15 +185,15 @@ class BufferTester {
 
         // Moving an empty buffer is well-defined: both ends up empty
         Fw::Buffer empty;
-        Fw::Buffer empty_destination(std::move(empty));
+        Fw::Buffer empty_destination(Fw::move(empty));
         ASSERT_FALSE(empty.isValid());
         ASSERT_FALSE(empty_destination.isValid());
         ASSERT_EQ(empty_destination.getContext(), Fw::Buffer::NO_CONTEXT);
 
         // Move-assigning an empty buffer over a valid one drops the valid one's data
-        empty_destination = std::move(destination);
+        empty_destination = Fw::move(destination);
         ASSERT_TRUE(empty_destination.isValid());
-        empty_destination = std::move(empty);
+        empty_destination = Fw::move(empty);
         ASSERT_FALSE(empty_destination.isValid());
         ASSERT_EQ(empty_destination.getOriginalData(), nullptr);
     }
