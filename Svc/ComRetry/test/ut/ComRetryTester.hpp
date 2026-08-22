@@ -16,7 +16,7 @@
 
 namespace Svc {
 
-class ComRetryTester final : public ComRetryGTestBase {
+class ComRetryTester final : public ComRetryGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants
@@ -46,6 +46,9 @@ class ComRetryTester final : public ComRetryGTestBase {
     void configure(U32 num_retries);
 
     void receiveBuffer(Fw::Buffer& buffer, ComCfg::FrameContext& context);
+
+    //! Hand a buffer back to the component the way a downstream component does: with a handle of its own
+    void returnBuffer(const Fw::Buffer& buffer, ComCfg::FrameContext& context);
 
     void checkDataOut(FwIndexType expectedIndex, U8* expectedData, FwSizeType expectedDataSize);
 

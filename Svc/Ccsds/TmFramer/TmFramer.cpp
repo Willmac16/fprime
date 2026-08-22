@@ -28,7 +28,8 @@ TmFramer ::~TmFramer() {}
 void TmFramer ::dataIn_handler(FwIndexType portNum, Fw::Buffer& data, const ComCfg::FrameContext& context) {
     FW_ASSERT(data.getSize() <= ComCfg::TmFrameFixedSize - TMHeader::SERIALIZED_SIZE - TMTrailer::SERIALIZED_SIZE,
               static_cast<FwAssertArgType>(data.getSize()));
-    FW_ASSERT(this->m_bufferState == BufferOwnershipState::OWNED, static_cast<FwAssertArgType>(this->m_bufferState));
+    FW_ASSERT(this->m_bufferState == Fw::Buffer::OwnershipState::OWNED,
+              static_cast<FwAssertArgType>(this->m_bufferState));
 
     // -----------------------------------------------
     // Header
@@ -86,7 +87,7 @@ void TmFramer ::dataIn_handler(FwIndexType portNum, Fw::Buffer& data, const ComC
     status = frameSerializer.serializeFrom(trailer);
     FW_ASSERT(status == Fw::FW_SERIALIZE_OK, status);
 
-    this->m_bufferState = BufferOwnershipState::NOT_OWNED;
+    this->m_bufferState = Fw::Buffer::OwnershipState::NOT_OWNED;
     this->dataOut_out(0, frameBuffer, context);
     this->dataReturnOut_out(0, data, context);  // return ownership of the original data buffer
 }
@@ -103,7 +104,9 @@ void TmFramer ::dataReturnIn_handler(FwIndexType portNum,
     // Assert that the returned buffer is the member, and set ownership state
     FW_ASSERT(frameBuffer.getData() >= &this->m_frameBuffer[0]);
     FW_ASSERT(frameBuffer.getData() < &this->m_frameBuffer[0] + sizeof(this->m_frameBuffer));
-    this->m_bufferState = BufferOwnershipState::OWNED;
+    this->m_bufferState = Fw::Buffer::OwnershipState::OWNED;
+    // The frame storage is back in this component's hands, so empty the handle that was holding it
+    this->releaseBuffer(frameBuffer);
 }
 
 void TmFramer ::fill_with_idle_packet(Fw::SerialBufferBase& serializer) {

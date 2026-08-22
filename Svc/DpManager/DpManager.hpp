@@ -14,7 +14,7 @@
 
 namespace Svc {
 
-class DpManager final : public DpManagerComponentBase {
+class DpManager final : public DpManagerComponentBase, public Fw::BufferOwner {
   private:
     // ----------------------------------------------------------------------
     // Static assertions against the assumptions about the model

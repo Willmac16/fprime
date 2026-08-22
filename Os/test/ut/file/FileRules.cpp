@@ -5,6 +5,7 @@
 #include <Fw/Types/String.hpp>
 #include <algorithm>
 #include <cstdio>
+#include "Fw/LanguageHelpers.hpp"
 #include "RulesHeaders.hpp"
 #include "STest/Pick/Pick.hpp"
 #include "Utils/Hash/Hash.hpp"
@@ -1098,6 +1099,64 @@ void Os::Test::FileTest::Tester::CopyConstruction::action(Os::Test::FileTest::Te
     Os::File temp(state.m_file);
     state.assert_file_consistent();            // Interim check to ensure original file did not change
     (void)new (&state.m_file) Os::File(temp);  // Copy-construct overtop of the original file
+    state.assert_file_consistent();
+}
+
+// ------------------------------------------------------------------------------------------------------
+// Rule:  MoveAssignment
+//
+// ------------------------------------------------------------------------------------------------------
+
+Os::Test::FileTest::Tester::MoveAssignment::MoveAssignment()
+    : STest::Rule<Os::Test::FileTest::Tester>("MoveAssignment") {}
+
+bool Os::Test::FileTest::Tester::MoveAssignment::precondition(
+    const Os::Test::FileTest::Tester& state  //!< The test state
+) {
+    return true;
+}
+
+void Os::Test::FileTest::Tester::MoveAssignment::action(Os::Test::FileTest::Tester& state  //!< The test state
+) {
+    printf("--> Rule: %s \n", this->getName());
+    state.assert_file_consistent();
+    const bool was_open = state.m_file.isOpen();
+    // Move out of the state's file: the file it held now belongs to temp
+    Os::File temp = Fw::move(state.m_file);
+    ASSERT_EQ(temp.isOpen(), was_open);
+    ASSERT_FALSE(state.m_file.isOpen());
+    // Move it straight back so the shadow state applies to the state's file again
+    state.m_file = Fw::move(temp);
+    ASSERT_FALSE(temp.isOpen());
+    state.assert_file_consistent();
+}
+
+// ------------------------------------------------------------------------------------------------------
+// Rule:  MoveConstruction
+//
+// ------------------------------------------------------------------------------------------------------
+
+Os::Test::FileTest::Tester::MoveConstruction::MoveConstruction()
+    : STest::Rule<Os::Test::FileTest::Tester>("MoveConstruction") {}
+
+bool Os::Test::FileTest::Tester::MoveConstruction::precondition(
+    const Os::Test::FileTest::Tester& state  //!< The test state
+) {
+    return true;
+}
+
+void Os::Test::FileTest::Tester::MoveConstruction::action(Os::Test::FileTest::Tester& state  //!< The test state
+) {
+    printf("--> Rule: %s \n", this->getName());
+    state.assert_file_consistent();
+    const bool was_open = state.m_file.isOpen();
+    // Move out of the state's file: the file it held now belongs to temp
+    Os::File temp(Fw::move(state.m_file));
+    ASSERT_EQ(temp.isOpen(), was_open);
+    ASSERT_FALSE(state.m_file.isOpen());
+    // The moved-from file holds nothing, so constructing overtop of it orphans no handle
+    (void)new (&state.m_file) Os::File(Fw::move(temp));
+    ASSERT_FALSE(temp.isOpen());
     state.assert_file_consistent();
 }
 

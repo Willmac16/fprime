@@ -47,8 +47,10 @@ void DpManager::productSendIn_handler(const FwIndexType portNum, FwDpIdType id, 
     // Update state variables
     ++this->numDataProducts;
     this->numBytes += buffer.getSize();
-    // Send the buffer on productSendOut
-    Fw::Buffer sendBuffer = buffer;
+    // Send the buffer on productSendOut. The autocoded handler takes the buffer by const reference while the output
+    // port needs a mutable one, so this mints a second owning handle rather than forwarding the caller's. That is
+    // why DpManager has to declare itself a buffer owner; it comes out when the handler signature allows forwarding.
+    Fw::Buffer sendBuffer = this->allocateBuffer(buffer.getData(), buffer.getSize(), buffer.getContext());
     this->productSendOut_out(portNum, sendBuffer);
 }
 

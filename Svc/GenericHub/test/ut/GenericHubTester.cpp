@@ -381,7 +381,8 @@ Fw::Buffer GenericHubTester ::from_allocate_handler(const FwIndexType portNum, c
     EXPECT_EQ(m_allocate.getData(), nullptr) << "Allocation buffer is still in use";
     EXPECT_LE(size, sizeof(m_data_for_allocation)) << "Allocation buffer size mismatch";
     m_allocate.set(m_data_for_allocation, size);
-    return m_allocate;
+    // The tester keeps m_allocate as its own record of what it handed out; the caller gets the owning handle
+    return this->allocateBuffer(m_allocate.getData(), m_allocate.getSize(), m_allocate.getContext());
 }
 
 void GenericHubTester ::from_bufferInReturn_handler(const FwIndexType portNum, Fw::Buffer& fwBuffer) {

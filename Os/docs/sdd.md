@@ -203,6 +203,41 @@ The full API for each service is documented in the header files in the [`Os/` mo
 > [!NOTE]
 > `Os::Task` exposes both usage patterns. `Os::Task::delay()` is a static method that blocks the current task for a specified duration, while `Os::Task` instances represent individual tasks that can be started and stopped.
 
+#### 5.3.1 Copy and Move Semantics
+
+Handle services carry OS state, so how they are copied and moved matters.
+
+`Os::File` supports both. A copy leaves two independent owners of the same file: each holds its own handle (on posix,
+`PosixFile`'s copy constructor duplicates the descriptor) and each closes that handle on destruction. A **move**
+instead hands the open file over: the destination ends up holding the file, and the source is left closed and in the
+default-constructed state, ready to be reopened or destroyed.
+
+```c++
+Os::File source;
+source.open("/path/to/file.bin", Os::File::OPEN_WRITE);
+
+Os::File destination(Fw::move(source));
+// destination holds the open file; source.isOpen() == false
+```
+
+Move assignment first closes any file the destination already holds, so no handle is orphaned. Self-move-assignment is
+a no-op and leaves the file open.
+
+Implementations opt into a direct hand-off by overriding `FileInterface::transferFrom`, which takes the underlying
+handle from another delegate of the same implementation and leaves that delegate holding nothing. `Os::Posix::File`
+does this, so a move of an `Os::File` on posix costs no syscalls and the destination ends up with the very same file
+descriptor. The default implementation of `transferFrom` returns `false`, and `Os::File` then falls back to
+constructing a copy of the source's delegate and closing the source. That fallback produces the same observable
+result for any implementation whose copy constructor duplicates the handle, at the cost of a duplicate-and-close.
+Implementations written before `transferFrom` existed therefore keep working unchanged.
+
+`Os::SandboxedFile` wraps an `Os::File` and follows the same rules: it is non-copyable but movable, and a move carries
+both the open file and the configured sandbox directory, leaving the source closed with the default `/` sandbox.
+
+The remaining handle services — `Os::Directory`, `Os::Mutex`, `Os::Queue`, `Os::CountingSemaphore`,
+`Os::ConditionVariable`, and `Os::Task` — are neither copyable nor movable. Their delegates offer no copy support, so
+there is no fallback path for a generic transfer; an instance of one of these services stays where it was constructed.
+
 ### 5.4 Initialization
 
 `Os::init()` is called once at system startup.  It initializes the singleton instances used by

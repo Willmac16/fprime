@@ -6,6 +6,7 @@
 // ======================================================================
 
 #include "Svc/Ccsds/AosFramer/AosFramer.hpp"
+#include "Fw/LanguageHelpers.hpp"
 #include "Svc/Ccsds/Utils/CRC16.hpp"
 #include "config/FppConstantsAc.hpp"
 
@@ -76,7 +77,7 @@ void AosFramer ::dataIn_handler(FwIndexType portNum, Fw::Buffer& data, const Com
 
     // Ensure rest of the com stack is complying with the [communications adapter
     // interface](docs/reference/communication-adapter-interface.md)
-    FW_ASSERT(currentVc.frame.state == BufferOwnershipState::OWNED,
+    FW_ASSERT(currentVc.frame.state == Fw::Buffer::OwnershipState::OWNED,
               static_cast<FwAssertArgType>(currentVc.frame.state));
 
     // AOS Header & M_PDU Header
@@ -132,7 +133,7 @@ void AosFramer ::dataReturnIn_handler(FwIndexType portNum,
 
     // Assert that the returned buffer is the member, and set ownership state
     FW_ASSERT(buffer_belongs(frameBuffer, currentVc.frame.backer, sizeof(currentVc.frame.backer)));
-    currentVc.frame.state = BufferOwnershipState::OWNED;
+    currentVc.frame.state = Fw::Buffer::OwnershipState::OWNED;
 
     // If we have an outstanding packet from the prior frame, pack it
     if (currentVc.outstanding.packet.isValid()) {
@@ -252,8 +253,8 @@ void AosFramer::check_and_send_vc(AosFramer::AosVc& currentVc) {
         }
 
         // Ensure we aren't double sending
-        FW_ASSERT(currentVc.frame.state == BufferOwnershipState::OWNED);
-        currentVc.frame.state = BufferOwnershipState::NOT_OWNED;
+        FW_ASSERT(currentVc.frame.state == Fw::Buffer::OwnershipState::OWNED);
+        currentVc.frame.state = Fw::Buffer::OwnershipState::NOT_OWNED;
 
         // Clean up our per frame vc values
         currentVc.current_payload_offset = 0;
@@ -330,7 +331,9 @@ void AosFramer ::pack_packet(Fw::Buffer& data, const ComCfg::FrameContext& conte
 
         // We'll pick up serialization from here later
         currentVc.outstanding.offset = dataOffset + dataSize;
-        currentVc.outstanding.packet = data;
+        // The remainder of this packet is now this framer's to finish; `dataStart` above still points at the memory.
+        // Self-move is possible here: fill_with_idle_packet re-packs the outstanding packet through this function.
+        currentVc.outstanding.packet = Fw::move(data);
     }
 
     status = frameSerializer.serializeFrom(dataStart, dataSize, Fw::Serialization::OMIT_LENGTH);

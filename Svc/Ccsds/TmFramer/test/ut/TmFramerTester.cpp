@@ -56,7 +56,7 @@ void TmFramerTester ::testNominalFraming() {
 
     // Check that the dataOut handler was called with the correct data
     ASSERT_from_dataOut_SIZE(1);
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data;
+    const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     ComCfg::FrameContext outContext = this->fromPortHistory_dataOut->at(0).context;
     const FwSizeType expectedFrameSize = ComCfg::TmFrameFixedSize;
     ASSERT_EQ(outBuffer.getSize(), expectedFrameSize);
@@ -104,10 +104,10 @@ void TmFramerTester ::testSeqCountWrapAround() {
     this->component.m_virtualFrameCount = 250;
     U8 countWrapAround = 250;  // will wrap around to 0 after 255
     for (U32 iter = 0; iter < 10; iter++) {
-        this->component.m_bufferState = TmFramer::BufferOwnershipState::OWNED;  // reset state to OWNED
+        this->component.m_bufferState = Fw::Buffer::OwnershipState::OWNED;  // reset state to OWNED
         this->invoke_to_dataIn(0, buffer, defaultContext);
         ASSERT_from_dataOut_SIZE(iter + 1);
-        Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(iter).data;
+        const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(iter).data;
         U8 outMcCount = this->getFrameMcCount(outBuffer.getData());
         U8 outVcCount = this->getFrameVcCount(outBuffer.getData());
         ASSERT_EQ(outMcCount, countWrapAround);
@@ -134,10 +134,10 @@ void TmFramerTester ::testDataReturn() {
     ASSERT_DEATH_IF_SUPPORTED(this->invoke_to_dataReturnIn(0, buffer, defaultContext), "TmFramer.cpp");
 
     // Now send the expected buffer and expect state to go back to OWNED
-    this->component.m_bufferState = TmFramer::BufferOwnershipState::NOT_OWNED;
+    this->component.m_bufferState = Fw::Buffer::OwnershipState::NOT_OWNED;
     Fw::Buffer internalBuffer(this->component.m_frameBuffer, sizeof(this->component.m_frameBuffer));
     this->invoke_to_dataReturnIn(0, internalBuffer, defaultContext);
-    ASSERT_EQ(this->component.m_bufferState, TmFramer::BufferOwnershipState::OWNED);
+    ASSERT_EQ(this->component.m_bufferState, Fw::Buffer::OwnershipState::OWNED);
 }
 
 void TmFramerTester ::testBufferOwnershipState() {
@@ -145,11 +145,11 @@ void TmFramerTester ::testBufferOwnershipState() {
     Fw::Buffer buffer(bufferData, sizeof(bufferData));
     ComCfg::FrameContext context;
     // force state to be NOT_OWNED and test that assertion is triggered
-    this->component.m_bufferState = TmFramer::BufferOwnershipState::NOT_OWNED;
+    this->component.m_bufferState = Fw::Buffer::OwnershipState::NOT_OWNED;
     ASSERT_DEATH_IF_SUPPORTED(this->invoke_to_dataIn(0, buffer, context), "TmFramer.cpp");
-    this->component.m_bufferState = TmFramer::BufferOwnershipState::OWNED;
+    this->component.m_bufferState = Fw::Buffer::OwnershipState::OWNED;
     this->invoke_to_dataIn(0, buffer, context);  // this should work now
-    ASSERT_EQ(this->component.m_bufferState, TmFramer::BufferOwnershipState::NOT_OWNED);
+    ASSERT_EQ(this->component.m_bufferState, Fw::Buffer::OwnershipState::NOT_OWNED);
 }
 
 // ----------------------------------------------------------------------

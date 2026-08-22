@@ -61,7 +61,7 @@ void AosDeframerTester::testNominalDeframing() {
     ASSERT_from_dataReturnOut_SIZE(1);  // Frame buffer returned
 
     // Verify packet content and context
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data;
+    const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     ASSERT_EQ(outBuffer.getSize(), sppSize);
     ASSERT_EQ(this->fromPortHistory_dataOut->at(0).context.get_pvn(), ComCfg::Pvn::SPACE_PACKET_PROTOCOL);
 

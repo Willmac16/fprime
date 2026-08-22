@@ -172,6 +172,16 @@ class PosixFile : public FileInterface {
     //!
     FileHandle* getHandle() override;
 
+    //! \brief take over the file descriptor held by `other`
+    //!
+    //! Adopts `other`'s file descriptor and invalidates `other`'s copy of it, so the descriptor is neither
+    //! duplicated nor closed. `other` must be a `PosixFile`, which `Os::File` guarantees.
+    //!
+    //! \param other: file delegate to take the descriptor from
+    //! \return always true: posix files always support the direct hand-off
+    //!
+    bool transferFrom(FileInterface& other) override;
+
   private:
     //! \brief Maps FILE_MODE_ constants in config/OsCfg.fpp to mode_t type for open
     //!

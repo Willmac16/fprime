@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <Fw/FPrimeBasicTypes.hpp>
 #include "Fw/Buffer/Buffer.hpp"
+#include "Fw/LanguageHelpers.hpp"
 #include "Fw/Types/test/ut/LinearBufferBaseTester.hpp"
 
 namespace Fw {
@@ -39,8 +40,9 @@ class BufferTester {
         buffer_set.set(data, sizeof(data), 1234);
         ASSERT_EQ(buffer_set, buffer);
 
-        // Check constructors and assignments
-        Fw::Buffer buffer_new(buffer);
+        // Check constructors and assignments. alias() rather than a copy so this file also compiles under
+        // FW_BUFFER_STRICT_OWNERSHIP, where the copy operations are deleted; the semantics under test are the same.
+        Fw::BufferView buffer_new = buffer.alias();
         ASSERT_EQ(buffer_new.getData(), data);
         ASSERT_EQ(buffer_new.getSize(), sizeof(data));
         ASSERT_EQ(buffer_new.getContext(), 1234);
@@ -52,14 +54,14 @@ class BufferTester {
         ASSERT_EQ(testBuffer.getSize(), 0);
 
         // Assignment operator with transitivity
-        Fw::Buffer buffer_assignment1, buffer_assignment2;
+        Fw::BufferView buffer_assignment1, buffer_assignment2;
         ASSERT_NE(buffer_assignment1.getData(), data);
         ASSERT_NE(buffer_assignment1.getSize(), sizeof(data));
         ASSERT_NE(buffer_assignment1.getContext(), 1234);
         ASSERT_NE(buffer_assignment2.getData(), data);
         ASSERT_NE(buffer_assignment2.getSize(), sizeof(data));
         ASSERT_NE(buffer_assignment2.getContext(), 1234);
-        buffer_assignment1 = buffer_assignment2 = buffer;
+        buffer_assignment1 = buffer_assignment2 = buffer.alias();
         ASSERT_EQ(buffer_assignment1.getData(), data);
         ASSERT_EQ(buffer_assignment1.getSize(), sizeof(data));
         ASSERT_EQ(buffer_assignment1.getContext(), 1234);
@@ -67,13 +69,10 @@ class BufferTester {
         ASSERT_EQ(buffer_assignment2.getSize(), sizeof(data));
         ASSERT_EQ(buffer_assignment2.getContext(), 1234);
 
-        // Check modifying the copies does not destroy
-        buffer_new.set(faux, 0);
-        buffer_new.setContext(22222);
-        buffer_assignment1.set(faux, 0);
-        buffer_assignment1.setContext(22222);
-        buffer_assignment2.set(faux, 0);
-        buffer_assignment2.setContext(22222);
+        // Views can be narrowed and re-pointed without disturbing the buffer they came from
+        buffer_new = Fw::BufferView(faux, 0, 22222);
+        buffer_assignment1 = Fw::BufferView(faux, 0, 22222);
+        buffer_assignment2 = Fw::BufferView(faux, 0, 22222);
 
         ASSERT_EQ(buffer.getData(), data);
         ASSERT_EQ(buffer.getSize(), sizeof(data));
@@ -109,8 +108,8 @@ class BufferTester {
         buffer.setSize(sizeof(data) - 25);
         ASSERT_EQ(buffer.getSize(), sizeof(data) - 25);
 
-        // Copies preserve offset and capacity
-        Fw::Buffer copy(buffer);
+        // Aliases preserve offset and capacity
+        Fw::BufferView copy = buffer.alias();
         ASSERT_EQ(copy.getOriginalData(), data);
         ASSERT_EQ(copy.getOffset(), 25);
         ASSERT_EQ(copy.getCapacity(), sizeof(data));
@@ -123,6 +122,77 @@ class BufferTester {
         ASSERT_DEATH_IF_SUPPORTED(buffer.setSize(sizeof(data) - 25 + 1), "");
         ASSERT_DEATH_IF_SUPPORTED(buffer.advance(-26), "");
         ASSERT_DEATH_IF_SUPPORTED(buffer.advance(static_cast<FwSignedSizeType>(sizeof(data))), "");
+    }
+
+    void test_move() {
+        U8 data[100];
+        Fw::Buffer buffer(data, sizeof(data), 1234);
+        buffer.advance(7);
+
+        // Move construction hands the wrapped data over wholesale
+        Fw::Buffer moved(Fw::move(buffer));
+        ASSERT_EQ(moved.getOriginalData(), data);
+        ASSERT_EQ(moved.getData(), data + 7);
+        ASSERT_EQ(moved.getOffset(), 7);
+        ASSERT_EQ(moved.getSize(), sizeof(data) - 7);
+        ASSERT_EQ(moved.getCapacity(), sizeof(data));
+        ASSERT_EQ(moved.getContext(), 1234);
+
+        // ... and leaves the source referring to nothing, so it cannot be used to return the same allocation twice
+        ASSERT_FALSE(buffer.isValid());
+        ASSERT_EQ(buffer.getOriginalData(), nullptr);
+        ASSERT_EQ(buffer.getData(), nullptr);
+        ASSERT_EQ(buffer.getOffset(), 0);
+        ASSERT_EQ(buffer.getSize(), 0);
+        ASSERT_EQ(buffer.getCapacity(), 0);
+        ASSERT_EQ(buffer.getContext(), Fw::Buffer::NO_CONTEXT);
+
+        // The moved-to buffer's serialization representation follows the data it now wraps
+        auto serializer = moved.getSerializer();
+        ASSERT_EQ(serializer.getBuffAddr(), data + 7);
+        ASSERT_EQ(serializer.getCapacity(), sizeof(data) - 7);
+
+        // Move assignment behaves the same way
+        Fw::Buffer destination;
+        destination = Fw::move(moved);
+        ASSERT_EQ(destination.getOriginalData(), data);
+        ASSERT_EQ(destination.getData(), data + 7);
+        ASSERT_EQ(destination.getOffset(), 7);
+        ASSERT_EQ(destination.getSize(), sizeof(data) - 7);
+        ASSERT_EQ(destination.getCapacity(), sizeof(data));
+        ASSERT_EQ(destination.getContext(), 1234);
+        ASSERT_FALSE(moved.isValid());
+        ASSERT_EQ(moved.getOriginalData(), nullptr);
+        ASSERT_EQ(moved.getContext(), Fw::Buffer::NO_CONTEXT);
+
+        // A moved-from buffer is not poisoned: it can wrap data again
+        U8 other[10];
+        moved.set(other, sizeof(other), 5678);
+        ASSERT_TRUE(moved.isValid());
+        ASSERT_EQ(moved.getData(), other);
+        ASSERT_EQ(destination.getOriginalData(), data);
+
+        // Self-move-assignment leaves the buffer untouched rather than clearing it
+        Fw::Buffer* alias = &destination;
+        destination = Fw::move(*alias);
+        ASSERT_EQ(destination.getOriginalData(), data);
+        ASSERT_EQ(destination.getOffset(), 7);
+        ASSERT_EQ(destination.getSize(), sizeof(data) - 7);
+        ASSERT_EQ(destination.getContext(), 1234);
+
+        // Moving an empty buffer is well-defined: both ends up empty
+        Fw::Buffer empty;
+        Fw::Buffer empty_destination(Fw::move(empty));
+        ASSERT_FALSE(empty.isValid());
+        ASSERT_FALSE(empty_destination.isValid());
+        ASSERT_EQ(empty_destination.getContext(), Fw::Buffer::NO_CONTEXT);
+
+        // Move-assigning an empty buffer over a valid one drops the valid one's data
+        empty_destination = Fw::move(destination);
+        ASSERT_TRUE(empty_destination.isValid());
+        empty_destination = Fw::move(empty);
+        ASSERT_FALSE(empty_destination.isValid());
+        ASSERT_EQ(empty_destination.getOriginalData(), nullptr);
     }
 
     void test_representations() {
@@ -184,6 +254,11 @@ TEST(Nominal, BasicBuffer) {
 TEST(Nominal, Advance) {
     Fw::BufferTester tester;
     tester.test_advance();
+}
+
+TEST(Nominal, Move) {
+    Fw::BufferTester tester;
+    tester.test_move();
 }
 
 TEST(Nominal, Representations) {

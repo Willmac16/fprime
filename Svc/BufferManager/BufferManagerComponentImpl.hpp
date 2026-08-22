@@ -13,6 +13,7 @@
 #ifndef BufferManager_HPP
 #define BufferManager_HPP
 
+#include <Fw/Buffer/Buffer.hpp>
 #include <Fw/Types/MemAllocator.hpp>
 #include "Svc/BufferManager/BufferManagerComponentAc.hpp"
 #include "config/BufferManagerComponentImplCfg.hpp"
@@ -52,7 +53,11 @@ namespace Svc {
 // destructor of BufferManager if cleanup() is not called. If a project-specific manual memory
 // allocator is not needed, Fw::MallocAllocator can be used.
 
-class BufferManagerComponentImpl final : public BufferManagerComponentBase {
+//! \brief Buffer manager component
+//!
+//! Derives from Fw::BufferOwner because it is the component answerable for the memory in its bins: it claims the
+//! buffers it hands out and releases the ones handed back, which no other component is able to do.
+class BufferManagerComponentImpl final : public BufferManagerComponentBase, public Fw::BufferOwner {
     friend class BufferManagerTester;
 
   public:
@@ -120,7 +125,7 @@ class BufferManagerComponentImpl final : public BufferManagerComponentBase {
     BufferBins m_bufferBins;  //!< copy of bins supplied by user
 
     struct AllocatedBuffer {
-        Fw::Buffer buff;            //!< Buffer class to give to user
+        Fw::BufferView buff;        //!< Record of the bin's memory; handing it out mints an owning buffer
         U8* memory;                 //!< pointer to memory buffer
         Fw::Buffer::SizeType size;  //!< size of the buffer
         bool allocated;             //!< this buffer has been allocated

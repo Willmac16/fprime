@@ -23,7 +23,12 @@ class DpContainerTester;
 namespace Fw {
 
 //! A data product Container
-class DpContainer {
+//! \brief Data product container
+//!
+//! Derives from Fw::BufferOwner as a stand-in: `fpp-to-cpp` builds containers from an lvalue Fw::Buffer, so the
+//! container cannot be handed the buffer by move and has to mint its own owning handle over the same memory. Once
+//! the autocoder passes the buffer by move this base class, and the minting in setBuffer, both come out.
+class DpContainer : public Fw::BufferOwner {
     friend class Fw::DpContainerTester;
 
   public:
@@ -91,6 +96,16 @@ class DpContainer {
     //! Copy assignment operator
     DpContainer& operator=(const DpContainer& src) = default;
 
+    //! Move constructor
+    //!
+    //! Declared explicitly because the copy operations above suppress the implicit move operations. Autocoded
+    //! containers assign a freshly built container over an existing one by move, which needs these to exist -- and
+    //! under FW_BUFFER_STRICT_OWNERSHIP the copy operations are deleted, so a move is the only way to do it.
+    DpContainer(DpContainer&& src) = default;
+
+    //! Move assignment operator
+    DpContainer& operator=(DpContainer&& src) = default;
+
   public:
     // ----------------------------------------------------------------------
     // Public member functions
@@ -106,7 +121,11 @@ class DpContainer {
 
     //! Get the packet buffer
     //! \return The buffer
-    Fw::Buffer getBuffer() const { return this->m_buffer; }
+    const Fw::Buffer& getBuffer() const { return this->m_buffer; }
+
+    //! Get the packet buffer for modification or for passing to an output port
+    //! \return The buffer
+    Fw::Buffer& getBuffer() { return this->m_buffer; }
 
     //! Get the packet size corresponding to the data size
     FwSizeType getPacketSize() const { return getPacketSizeForDataSize(this->m_dataSize); }

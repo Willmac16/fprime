@@ -317,7 +317,7 @@ void CfdpManagerTester::verifyFinAckPdu(FwIndexType pduIndex,
                                         EntityId sourceEid,
                                         EntityId destEid,
                                         U32 expectedSeqNum) {
-    Fw::Buffer finAckPduBuffer = this->getSentPduBuffer(pduIndex);
+    const Fw::Buffer& finAckPduBuffer = this->getSentPduBuffer(pduIndex);
     ASSERT_GT(finAckPduBuffer.getSize(), 0) << "FIN-ACK PDU should be sent";
 
     verifyAckPdu(finAckPduBuffer, sourceEid, destEid, expectedSeqNum, Cfdp::FileDirective::FILE_DIRECTIVE_FIN, 1,
@@ -330,7 +330,7 @@ void CfdpManagerTester::verifyMetadataPduAtIndex(FwIndexType pduIndex,
                                                  const char* srcFile,
                                                  const char* dstFile,
                                                  Cfdp::Class::T cfdpClass) {
-    Fw::Buffer metadataPduBuffer = this->getSentPduBuffer(pduIndex);
+    const Fw::Buffer& metadataPduBuffer = this->getSentPduBuffer(pduIndex);
     ASSERT_GT(metadataPduBuffer.getSize(), 0) << "Metadata PDU should be sent";
     EXPECT_EQ(fileSize, setup.txn->m_fsize) << "File size should be set after file is opened";
     verifyMetadataPdu(metadataPduBuffer, component.getLocalEidParam(), TEST_GROUND_EID, setup.expectedSeqNum,
@@ -344,7 +344,7 @@ void CfdpManagerTester::verifyMultipleFileDataPdus(FwIndexType startIndex,
                                                    const char* srcFile,
                                                    Cfdp::Class::T cfdpClass) {
     for (U8 pduIdx = 0; pduIdx < numPdus; pduIdx++) {
-        Fw::Buffer fileDataPduBuffer = this->getSentPduBuffer(static_cast<FwIndexType>(startIndex + pduIdx));
+        const Fw::Buffer& fileDataPduBuffer = this->getSentPduBuffer(static_cast<FwIndexType>(startIndex + pduIdx));
         ASSERT_GT(fileDataPduBuffer.getSize(), 0) << "File data PDU " << static_cast<int>(pduIdx) << " should be sent";
         verifyFileDataPdu(fileDataPduBuffer, component.getLocalEidParam(), TEST_GROUND_EID, setup.expectedSeqNum,
                           pduIdx * dataPerPdu, dataPerPdu, srcFile, cfdpClass);
@@ -419,7 +419,7 @@ void CfdpManagerTester::sendAndVerifyClass1Tx(const char* srcFile, const char* d
     verifyMetadataPduAtIndex(0, setup, fileSize, srcFile, dstFile, Cfdp::Class::CLASS_1);
 
     // Verify FileData PDU
-    Fw::Buffer fileDataPduBuffer = this->getSentPduBuffer(1);
+    const Fw::Buffer& fileDataPduBuffer = this->getSentPduBuffer(1);
     ASSERT_GT(fileDataPduBuffer.getSize(), 0) << "File data PDU should be sent";
     verifyFileDataPdu(fileDataPduBuffer, component.getLocalEidParam(), TEST_GROUND_EID, setup.expectedSeqNum, 0,
                       static_cast<U16>(fileSize), srcFile, Cfdp::Class::CLASS_1);
@@ -434,7 +434,7 @@ void CfdpManagerTester::sendAndVerifyClass1Tx(const char* srcFile, const char* d
     ASSERT_FROM_PORT_HISTORY_SIZE(3);
 
     // Verify EOF PDU
-    Fw::Buffer eofPduBuffer = this->getSentPduBuffer(2);
+    const Fw::Buffer& eofPduBuffer = this->getSentPduBuffer(2);
     ASSERT_GT(eofPduBuffer.getSize(), 0) << "EOF PDU should be sent";
     verifyEofPdu(eofPduBuffer, component.getLocalEidParam(), TEST_GROUND_EID, setup.expectedSeqNum,
                  Cfdp::ConditionCode::CONDITION_CODE_NO_ERROR, static_cast<FileSize>(fileSize), srcFile);
@@ -650,7 +650,7 @@ void CfdpManagerTester::sendAndVerifyClass2Rx(const char* srcFile,
     // Verify EOF-ACK sent
     FwSizeType pduCountAfterTick = this->fromPortHistory_dataOut->size();
     EXPECT_EQ(pduCountBeforeEof + 1, pduCountAfterTick);
-    Fw::Buffer eofAckPduBuffer = this->getSentPduBuffer(static_cast<FwIndexType>(pduCountBeforeEof));
+    const Fw::Buffer& eofAckPduBuffer = this->getSentPduBuffer(static_cast<FwIndexType>(pduCountBeforeEof));
     ASSERT_GT(eofAckPduBuffer.getSize(), 0);
     verifyAckPdu(eofAckPduBuffer, TEST_GROUND_EID, component.getLocalEidParam(), transactionSeq,
                  Cfdp::FileDirective::FILE_DIRECTIVE_END_OF_FILE, 1, Cfdp::ConditionCode::CONDITION_CODE_NO_ERROR,
@@ -668,7 +668,7 @@ void CfdpManagerTester::sendAndVerifyClass2Rx(const char* srcFile,
 
             if (this->fromPortHistory_dataOut->size() > pduCountAfterTick) {
                 FwIndexType lastIndex = static_cast<FwIndexType>(this->fromPortHistory_dataOut->size() - 1);
-                Fw::Buffer lastPdu = this->getSentPduBuffer(lastIndex);
+                const Fw::Buffer& lastPdu = this->getSentPduBuffer(lastIndex);
                 Cfdp::NakPdu nakPdu;
                 const U8* pduData;
                 FwSizeType pduSize;
@@ -706,7 +706,7 @@ void CfdpManagerTester::sendAndVerifyClass2Rx(const char* srcFile,
 
             if (this->fromPortHistory_dataOut->size() > pduCountBeforeRetransmit) {
                 FwIndexType lastIndex = static_cast<FwIndexType>(this->fromPortHistory_dataOut->size() - 1);
-                Fw::Buffer lastPdu = this->getSentPduBuffer(lastIndex);
+                const Fw::Buffer& lastPdu = this->getSentPduBuffer(lastIndex);
                 Cfdp::FinPdu finPdu;
                 const U8* pduData;
                 FwSizeType pduSize;
@@ -732,7 +732,7 @@ void CfdpManagerTester::sendAndVerifyClass2Rx(const char* srcFile,
 
             if (this->fromPortHistory_dataOut->size() > 1) {
                 FwIndexType lastIndex = static_cast<FwIndexType>(this->fromPortHistory_dataOut->size() - 1);
-                Fw::Buffer lastPdu = this->getSentPduBuffer(lastIndex);
+                const Fw::Buffer& lastPdu = this->getSentPduBuffer(lastIndex);
                 Cfdp::FinPdu finPdu;
                 const U8* pduData;
                 FwSizeType pduSize;
@@ -862,7 +862,7 @@ void CfdpManagerTester::sendAndVerifyClass2Tx(TransactionInitType initType,
     FwIndexType firstEofIndex = static_cast<FwIndexType>(1 + numFileDataPdus);
     ASSERT_FROM_PORT_HISTORY_SIZE(static_cast<U32>(firstEofIndex + 1));
 
-    Fw::Buffer firstEofPduBuffer = this->getSentPduBuffer(firstEofIndex);
+    const Fw::Buffer& firstEofPduBuffer = this->getSentPduBuffer(firstEofIndex);
     ASSERT_GT(firstEofPduBuffer.getSize(), 0);
     verifyEofPdu(firstEofPduBuffer, component.getLocalEidParam(), TEST_GROUND_EID, setup.expectedSeqNum,
                  Cfdp::ConditionCode::CONDITION_CODE_NO_ERROR, static_cast<FileSize>(expectedFileSize), srcFile);
@@ -896,7 +896,7 @@ void CfdpManagerTester::sendAndVerifyClass2Tx(TransactionInitType initType,
 
             if (this->fromPortHistory_dataOut->size() > 0) {
                 FwIndexType lastIndex = static_cast<FwIndexType>(this->fromPortHistory_dataOut->size() - 1);
-                Fw::Buffer lastPdu = this->getSentPduBuffer(lastIndex);
+                const Fw::Buffer& lastPdu = this->getSentPduBuffer(lastIndex);
                 Cfdp::EofPdu eofPdu;
                 const U8* pduData;
                 FwSizeType pduSize;
@@ -1058,7 +1058,7 @@ void CfdpManagerTester::testClass2TxLateFinAck() {
     // A stateless ACK(FIN) must go out. Unlike the in-transaction FIN-ACK (verifyFinAckPdu, which
     // expects ACK_TXN_STATUS_TERMINATED), the stateless path reports ACK_TXN_STATUS_UNRECOGNIZED.
     ASSERT_EQ(1u, this->fromPortHistory_dataOut->size()) << "Exactly one PDU (the stateless FIN-ACK) should be sent";
-    Fw::Buffer finAckBuffer = this->getSentPduBuffer(0);
+    const Fw::Buffer& finAckBuffer = this->getSentPduBuffer(0);
     ASSERT_GT(finAckBuffer.getSize(), 0) << "Stateless FIN-ACK PDU should be sent";
     verifyAckPdu(finAckBuffer, component.getLocalEidParam(), TEST_GROUND_EID, seqNum,
                  Cfdp::FileDirective::FILE_DIRECTIVE_FIN, 1, Cfdp::ConditionCode::CONDITION_CODE_NO_ERROR,
@@ -1130,7 +1130,7 @@ void CfdpManagerTester::testClass2RxZeroLengthFile() {
         this->component.doDispatch();
 
         for (FwSizeType i = 0; (i < this->fromPortHistory_dataOut->size()) && !foundFin; ++i) {
-            Fw::Buffer pduBuffer = this->getSentPduBuffer(static_cast<FwIndexType>(i));
+            const Fw::Buffer& pduBuffer = this->getSentPduBuffer(static_cast<FwIndexType>(i));
             const U8* pduData;
             FwSizeType pduSize;
             if (this->getPduData(pduBuffer, pduData, pduSize) &&

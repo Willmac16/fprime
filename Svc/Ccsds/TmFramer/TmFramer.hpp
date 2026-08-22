@@ -17,7 +17,9 @@ namespace Svc {
 
 namespace Ccsds {
 
-class TmFramer final : public TmFramerComponentBase {
+//! \brief Derives from Fw::BufferOwner because it is answerable for its own frame storage: it lends that storage
+//! \brief out on dataOut and takes it back on dataReturnIn, and no other component can change its ownership state.
+class TmFramer final : public TmFramerComponentBase, public Fw::BufferOwner {
     friend class TmFramerTester;
 
     static_assert(ComCfg::TmFrameFixedSize > TMHeader::SERIALIZED_SIZE + TMTrailer::SERIALIZED_SIZE,
@@ -37,11 +39,6 @@ class TmFramer final : public TmFramerComponentBase {
                   "SP headers, and 1 idle byte");
 
     static constexpr U8 IDLE_DATA_PATTERN = 0x44;
-
-    enum class BufferOwnershipState {
-        NOT_OWNED,  //!< The buffer is currently not owned by the TmFramer
-        OWNED,      //!< The buffer is currently owned by the TmFramer
-    };
 
   public:
     // ----------------------------------------------------------------------
@@ -100,8 +97,9 @@ class TmFramer final : public TmFramerComponentBase {
   private:
     // Because the TM protocol use fixed width frames, and only one frame is in transit between ComQueue and
     // ComInterface at a time, we can use a member fixed-size buffer to hold the frame data
-    U8 m_frameBuffer[ComCfg::TmFrameFixedSize];                        //!< Buffer to hold the frame data
-    BufferOwnershipState m_bufferState = BufferOwnershipState::OWNED;  //!< whether m_frameBuffer is owned by TmFramer
+    U8 m_frameBuffer[ComCfg::TmFrameFixedSize];  //!< Buffer to hold the frame data
+    //! Whether m_frameBuffer is in this component's hands or currently lent out downstream
+    Fw::Buffer::OwnershipState m_bufferState = Fw::Buffer::OwnershipState::OWNED;
 
     // Current implementation uses a single virtual channel, so we can use a single virtual frame count
     U8 m_masterFrameCount;   //!< Master Frame Count - 8 bits - wraps around at 255

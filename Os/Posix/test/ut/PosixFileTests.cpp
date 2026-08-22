@@ -2,6 +2,7 @@
 // \title Os/Posix/test/ut/PosixFileTests.cpp
 // \brief tests for posix implementation for Os::File
 // ======================================================================
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 #include <config/FppConstantsAc.hpp>
@@ -10,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <list>
+#include "Fw/LanguageHelpers.hpp"
 #include "Os/File.hpp"
 #include "Os/Posix/File.hpp"
 #include "Os/test/ut/file/CommonTests.hpp"
@@ -244,4 +246,140 @@ int main(int argc, char** argv) {
     STest::Random::seed();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ======================================================================
+// Move semantics for Os::File on posix.
+//
+// Os::File is movable: a move hands the open file over to the destination
+// and leaves the source closed. On posix the hand-off goes through
+// PosixFile::transferFrom, so the very same descriptor ends up in the
+// destination -- no dup(2), and no descriptor left behind in the source.
+// ======================================================================
+
+namespace {
+
+//! Create a temporary file and return its path. The descriptor used to create it is closed: Os::File opens its own.
+std::string make_temp_file(const char* name_template) {
+    char path[64];
+    (void)snprintf(path, sizeof(path), "%s", name_template);
+    int tmp_fd = ::mkstemp(path);
+    EXPECT_GE(tmp_fd, 0) << "Failed to create temp file: " << ::strerror(errno);
+    ::close(tmp_fd);
+    return std::string(path);
+}
+
+//! Read the posix descriptor out of an Os::File
+int descriptor_of(Os::File& file) {
+    return static_cast<Os::Posix::File::PosixFileHandle*>(file.getHandle())->m_file_descriptor;
+}
+
+//! Check whether a descriptor is still open in this process
+bool descriptor_open(int file_descriptor) {
+    return ::fcntl(file_descriptor, F_GETFD) != -1;
+}
+
+//! Local copy of the invalid-descriptor sentinel: the constexpr member has no out-of-line definition to bind to
+const int INVALID_DESCRIPTOR = Os::Posix::File::PosixFileHandle::INVALID_FILE_DESCRIPTOR;
+
+}  // namespace
+
+//! Move construction hands the descriptor over untouched: same descriptor in the destination, none in the source.
+TEST(PosixFileMoveSemantics, MoveConstructionTransfersDescriptor) {
+    const std::string path = make_temp_file("/tmp/fprime-os-file-move-ctor-XXXXXX");
+
+    Os::File source;
+    ASSERT_EQ(source.open(path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
+    const int original_descriptor = descriptor_of(source);
+    ASSERT_GE(original_descriptor, 0);
+
+    Os::File destination(Fw::move(source));
+
+    // The destination holds the original descriptor: it was handed over, not duplicated
+    EXPECT_EQ(descriptor_of(destination), original_descriptor);
+    EXPECT_TRUE(destination.isOpen());
+    EXPECT_TRUE(descriptor_open(original_descriptor));
+
+    // The source holds nothing at all, so destroying or reusing it cannot close the moved file
+    EXPECT_FALSE(source.isOpen());
+    EXPECT_EQ(descriptor_of(source), INVALID_DESCRIPTOR);
+
+    // The moved file is fully usable through the destination
+    U8 buffer[8] = {0};
+    FwSizeType size = sizeof(buffer);
+    EXPECT_EQ(destination.write(buffer, size, Os::File::WaitType::WAIT), Os::File::Status::OP_OK);
+    EXPECT_EQ(size, static_cast<FwSizeType>(sizeof(buffer)));
+
+    destination.close();
+    ::unlink(path.c_str());
+}
+
+//! Move assignment releases the file the destination already held before taking over the source's.
+TEST(PosixFileMoveSemantics, MoveAssignmentClosesDestinationAndTransfersDescriptor) {
+    const std::string source_path = make_temp_file("/tmp/fprime-os-file-move-src-XXXXXX");
+    const std::string destination_path = make_temp_file("/tmp/fprime-os-file-move-dst-XXXXXX");
+
+    Os::File source;
+    ASSERT_EQ(source.open(source_path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
+    const int source_descriptor = descriptor_of(source);
+
+    Os::File destination;
+    ASSERT_EQ(destination.open(destination_path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
+    const int replaced_descriptor = descriptor_of(destination);
+    ASSERT_NE(source_descriptor, replaced_descriptor);
+
+    destination = Fw::move(source);
+
+    // The file the destination used to hold is closed rather than leaked
+    EXPECT_FALSE(descriptor_open(replaced_descriptor));
+    // ... and the source's descriptor moved over untouched
+    EXPECT_EQ(descriptor_of(destination), source_descriptor);
+    EXPECT_TRUE(destination.isOpen());
+    EXPECT_FALSE(source.isOpen());
+    EXPECT_EQ(descriptor_of(source), INVALID_DESCRIPTOR);
+
+    destination.close();
+    ::unlink(source_path.c_str());
+    ::unlink(destination_path.c_str());
+}
+
+//! A moved-from file is not merely closed, it is reusable: opening it again works and leaves the moved file alone.
+TEST(PosixFileMoveSemantics, MovedFromFileIsReusable) {
+    const std::string first_path = make_temp_file("/tmp/fprime-os-file-move-reuse-a-XXXXXX");
+    const std::string second_path = make_temp_file("/tmp/fprime-os-file-move-reuse-b-XXXXXX");
+
+    Os::File source;
+    ASSERT_EQ(source.open(first_path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
+    Os::File destination(Fw::move(source));
+    const int moved_descriptor = descriptor_of(destination);
+
+    ASSERT_EQ(source.open(second_path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
+    EXPECT_TRUE(source.isOpen());
+    EXPECT_NE(descriptor_of(source), moved_descriptor);
+    EXPECT_TRUE(descriptor_open(moved_descriptor));
+
+    source.close();
+    destination.close();
+    ::unlink(first_path.c_str());
+    ::unlink(second_path.c_str());
+}
+
+//! Self-move-assignment must not close the file out from under its only owner.
+TEST(PosixFileMoveSemantics, SelfMoveAssignmentLeavesFileOpen) {
+    const std::string path = make_temp_file("/tmp/fprime-os-file-move-self-XXXXXX");
+
+    Os::File file;
+    ASSERT_EQ(file.open(path.c_str(), Os::File::OPEN_WRITE), Os::File::Status::OP_OK);
+    const int descriptor = descriptor_of(file);
+
+    // Assign through an alias so this is a genuine self-move rather than a directly diagnosable one
+    Os::File* alias = &file;
+    file = Fw::move(*alias);
+
+    EXPECT_TRUE(file.isOpen());
+    EXPECT_EQ(descriptor_of(file), descriptor);
+    EXPECT_TRUE(descriptor_open(descriptor));
+
+    file.close();
+    ::unlink(path.c_str());
 }

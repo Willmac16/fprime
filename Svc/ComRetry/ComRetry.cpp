@@ -6,6 +6,7 @@
 
 #include "Svc/ComRetry/ComRetry.hpp"
 #include "ComRetry.hpp"
+#include "Fw/LanguageHelpers.hpp"
 
 namespace Svc {
 
@@ -85,7 +86,9 @@ void ComRetry ::dataReturnIn_handler(FwIndexType portNum, Fw::Buffer& buffer, co
     FW_ASSERT(this->m_bufferState == Fw::Buffer::OwnershipState::NOT_OWNED);
     FW_ASSERT(this->m_retry_state == WAITING_FOR_STATUS);
     this->m_bufferState = Fw::Buffer::OwnershipState::OWNED;
-    this->m_buffer = buffer;
+    // Take the buffer rather than alias it. ComRetry manages no storage of its own, so the only way it can hold on
+    // to a buffer for a later retry is to take it from the sender, which leaves the sender without one.
+    this->m_buffer = Fw::move(buffer);
     this->m_context = context;
 }
 

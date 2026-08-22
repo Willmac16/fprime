@@ -14,6 +14,7 @@
 #include <Fw/Logger/Logger.hpp>
 #include <Fw/Types/Assert.hpp>
 #include <cerrno>
+#include "Fw/LanguageHelpers.hpp"
 
 namespace Drv {
 
@@ -236,7 +237,8 @@ void SocketComponentHelper::readLoop() {
                     // Send out received data
                     buffer.setSize(size);
                 }
-                this->sendBuffer(buffer, status);
+                // Hand the buffer on: the read loop keeps no claim on it once it has been sent
+                this->sendBuffer(Fw::move(buffer), status);
             } else {
                 Fw::Logger::log("[WARNING] %s failed to get buffer for recv\n", this->m_task.getName().toChar());
                 (void)Os::Task::delay(SOCKET_RETRY_INTERVAL);

@@ -64,7 +64,7 @@ void SpacePacketDeframerTester ::testNominalDeframing() {
     ASSERT_from_dataOut_SIZE(1);
     ASSERT_from_validateApidSeqCount_SIZE(1);
     ASSERT_FROM_PORT_HISTORY_SIZE(2);  // only two port calls in nominal case
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data;
+    const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     ASSERT_EQ(outBuffer.getSize(), static_cast<Fw::Buffer::SizeType>(dataLength));
     for (U32 i = 0; i < dataLength; ++i) {
         ASSERT_EQ(outBuffer.getData()[i], data[i]);
@@ -103,7 +103,7 @@ void SpacePacketDeframerTester ::testDeframingIncorrectLength() {
     ASSERT_from_dataReturnOut_SIZE(1);
     ASSERT_FROM_PORT_HISTORY_SIZE(2);  // two port calls, one for dataReturn and one for errorNotify
     ASSERT_from_errorNotify(0, Svc::Ccsds::FrameError::SP_INVALID_LENGTH);
-    Fw::Buffer returnedBuffer = this->fromPortHistory_dataReturnOut->at(0).data;
+    const Fw::Buffer& returnedBuffer = this->fromPortHistory_dataReturnOut->at(0).data;
     ASSERT_EQ(returnedBuffer.getSize(), buffer.getSize());
     ASSERT_EQ(this->fromPortHistory_dataReturnOut->at(0).context, nullContext);  // Data should be the same as input
 

@@ -43,6 +43,25 @@ class SandboxedFile {
     SandboxedFile(const SandboxedFile&) = delete;             //!< Non-copyable (owns file handle)
     SandboxedFile& operator=(const SandboxedFile&) = delete;  //!< Non-copy-assignable
 
+    //! \brief Move constructor that takes over the open file and sandbox configuration from `other`
+    //!
+    //! A SandboxedFile owns its file handle, so it cannot be copied -- but it can be handed off. After the move
+    //! this object holds the file and sandbox directory `other` held, and `other` is left as if it had just been
+    //! default-constructed: closed, with the default `/` sandbox. This makes it possible to build a configured,
+    //! open SandboxedFile in one place and return or store it elsewhere.
+    //!
+    //! \param other: file to take the open file and sandbox configuration from
+    SandboxedFile(SandboxedFile&& other);
+
+    //! \brief Move assignment operator that takes over the open file and sandbox configuration from `other`
+    //!
+    //! Closes any file this object currently holds, then takes over `other` as described for the move
+    //! constructor. Self-move-assignment is a no-op.
+    //!
+    //! \param other: file to take the open file and sandbox configuration from
+    //! \return reference to this file
+    SandboxedFile& operator=(SandboxedFile&& other);
+
     //! \brief Construct a SandboxedFile with default sandbox of `/`
     //!
     //! The default allows any absolute path. Call `configure()` to restrict.

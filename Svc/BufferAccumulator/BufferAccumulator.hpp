@@ -55,14 +55,14 @@ class BufferAccumulator final : public BufferAccumulatorComponentBase {
                   FwSizeType capacity          //!< The capacity
         );
 
-        //! Enqueue an index.
-        //! Fails if the queue is full.
+        //! Enqueue an element, taking ownership of it.
+        //! Fails if the queue is full, in which case `e` is left untouched and still owned by the caller.
         //! \return Whether the operation succeeded
-        bool enqueue(const Fw::Buffer& e  //!< The element to enqueue
+        bool enqueue(Fw::Buffer&& e  //!< The element to enqueue
         );
 
-        //! Dequeue an index.
-        //! Fails if the queue is empty.
+        //! Dequeue an element, handing ownership of it to `e`.
+        //! Fails if the queue is empty, in which case `e` is left untouched.
         bool dequeue(Fw::Buffer& e  //!< The dequeued element
         );
 

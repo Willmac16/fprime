@@ -20,7 +20,9 @@ namespace Svc {
 
 namespace Ccsds {
 
-class AosFramer final : public AosFramerComponentBase {
+//! \brief Derives from Fw::BufferOwner because it is answerable for its own frame storage: it lends that storage
+//! \brief out on dataOut and takes it back on dataReturnIn, and no other component can change its ownership state.
+class AosFramer final : public AosFramerComponentBase, public Fw::BufferOwner {
     friend class AosFramerTester;
 
     static constexpr U8 SPP_IDLE_DATA_PATTERN = 0x44;
@@ -28,11 +30,6 @@ class AosFramer final : public AosFramerComponentBase {
 
     // Offset to start of payload
     static constexpr U16 START_OF_PAYLOAD = AOSHeader::SERIALIZED_SIZE + M_PDUHeader::SERIALIZED_SIZE;
-
-    enum class BufferOwnershipState {
-        NOT_OWNED,  //!< The buffer is currently not owned by the AosFramer
-        OWNED,      //!< The buffer is currently owned by the AosFramer
-    };
 
     struct PDU {
         Fw::Buffer packet;             //!< User Packet to be spread across M_PDUs
@@ -49,9 +46,10 @@ class AosFramer final : public AosFramerComponentBase {
         // Because the AOS protocol use fixed width frames, and only one frame is in transit between ComQueue and
         // ComInterface at a time, we can use a member fixed-size buffer to hold the frame data
         struct FrameBuffer {
-            U8 backer[ComCfg::AosMaxFrameFixedSize];                   //!< Buffer to hold the frame data
-            Fw::Buffer buffer;                                         //!< Buffer object pointing at frameBufferBacker
-            BufferOwnershipState state = BufferOwnershipState::OWNED;  //!< whether m_frameBuffer is owned by AosFramer
+            U8 backer[ComCfg::AosMaxFrameFixedSize];  //!< Buffer to hold the frame data
+            Fw::Buffer buffer;                        //!< Buffer object pointing at frameBufferBacker
+            //! Whether this VC's frame storage is in this component's hands or currently lent out
+            Fw::Buffer::OwnershipState state = Fw::Buffer::OwnershipState::OWNED;
         } frame;
 
         // multi frame per PDU support

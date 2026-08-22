@@ -14,7 +14,7 @@
 
 namespace Svc {
 
-class FrameAccumulatorTester : public FrameAccumulatorGTestBase {
+class FrameAccumulatorTester : public FrameAccumulatorGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants

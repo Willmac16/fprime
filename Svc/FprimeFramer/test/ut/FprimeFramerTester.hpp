@@ -12,7 +12,7 @@
 
 namespace Svc {
 
-class FprimeFramerTester final : public FprimeFramerGTestBase {
+class FprimeFramerTester final : public FprimeFramerGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants

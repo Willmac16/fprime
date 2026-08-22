@@ -143,6 +143,65 @@ extern "C" {
 #define FW_AMPCS_COMPATIBLE (0)  //!< Whether or not JPL AMPCS ground system support is enabled.
 #endif
 
+// Enforce single-ownership semantics on Fw::Buffer.
+//
+// When enabled, Fw::Buffer becomes move-only -- its copy constructor and copy assignment operator are deleted -- and
+// its destructor asserts if it still refers to an allocation. Together these turn two silent buffer-ownership
+// mistakes into a build error and an assertion: keeping a second reference to a buffer that was handed off, and
+// dropping a buffer without returning it to its manager.
+//
+// Ownership is carried by the type rather than by a flag. Holding an Fw::Buffer *is* holding responsibility for an
+// allocation; a reference that carries no such responsibility is an Fw::BufferView, which is a different type, copies
+// freely, and destroys silently. Nothing has to ask a buffer whether it is really an owner, and the destructor check
+// never fires on a reference, so it never has to be silenced.
+//
+// Reclaiming an allocation is restricted to the component answerable for the memory: Fw::Buffer has no way to give an
+// allocation up, and release lives on the Fw::BufferOwner mixin that a buffer manager derives from. Were it public,
+// giving a buffer up would be the obvious way to quiet an assertion, and quieting that assertion is exactly what a
+// leak looks like -- so a component holding a buffer has one way to be rid of it, which is to hand it to someone
+// else. Creating an owning handle is not yet restricted the same way: Fw::Buffer's memory-taking constructor is
+// still public, so Fw::BufferOwner::allocateBuffer is a statement of intent rather than a gate. Making it private
+// means reclassifying the 351 sites that construct a buffer over memory as owners or, far more often, as views.
+//
+// Taking a buffer back empties the handle rather than merely marking it, so a component that hands a buffer back and
+// then reaches through its own handle finds nothing rather than memory that now belongs to someone else. That
+// emptying is unconditional -- it applies with this setting off as well. It does not cover a view taken before the
+// buffer went back; closing that would need a reference count, and a count cannot survive being serialized into a
+// message queue.
+//
+// The two kinds of port call differ, and the difference is the point:
+//
+//   - A sync port call passes Fw::Buffer by reference. It is the same object on both sides, so the caller keeps
+//     ownership and a callee that means to keep the buffer must move out of the reference it was given, which
+//     empties the caller's.
+//   - An async port call serializes the buffer into a message queue rather than passing it, so it must transfer
+//     ownership: the sender gives the buffer up and the far side becomes answerable for it.
+//
+// All of F Prime's own hand-written source -- flight code and unit tests alike -- compiles with this enabled. What
+// does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:
+//
+//   1. Unit-test harnesses (`*TesterBase.cpp`, `*GTestBase.cpp`) copy-assign port arguments into history entries:
+//      `_e.fwBuffer = fwBuffer;`. Those entries want Fw::BufferView, which copies freely.
+//   2. Serializable types with an Fw.Buffer member (Svc::ComDataContextPair) copy the member in their copy
+//      constructor and copy assignment operator. Such members want Fw::BufferView too.
+//   3. Component code builds Fw::DpContainer from an lvalue Fw::Buffer (`DpContainer(globalId, buffer, baseId)`), so
+//      the container has to mint a second owning handle over the same memory. Fw::DpContainer and Svc::DpManager
+//      derive from Fw::BufferOwner only to stand in for this; both should stop once the buffer is passed by move.
+//   4. Async port invocation does not transfer ownership out of the sender. `invoke()` serializes the caller's
+//      buffer into the queue and leaves it untouched, so the caller is still an owner when its buffer goes out of
+//      scope and the destructor assertion trips. The generated async `invoke()` needs to take the buffer by rvalue
+//      reference, or reset it once it has been serialized. Nothing in this repository can stand in for that: a
+//      component cannot give a buffer up on its own, by design.
+//
+// Item 4 has a counterpart that is not a blocker but a consequence worth expecting. Async dispatch on the far side
+// deserializes into a local Fw::Buffer -- an owning handle -- passes it to the handler by reference, and destroys it.
+// A handler that neither moves the buffer on nor returns it will therefore assert. That is the leak this setting
+// exists to find, but it means handlers written to forward a buffer by reference need revisiting before a system
+// runs clean.
+#ifndef FW_BUFFER_STRICT_OWNERSHIP
+#define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when an owned buffer is destroyed
+#endif
+
 // Posix thread names are limited to 16 characters, this can lead to collisions. In the event of a
 // collision, set this to 0.
 #ifndef POSIX_THREADS_ENABLE_NAMES

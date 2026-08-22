@@ -78,7 +78,7 @@ Svc::CompressionAlgorithm DpCompressProcTester ::from_compressChunk_handler(FwIn
     }
 }
 
-void DpCompressProcTester::uncompress_data(Fw::Buffer container_buf,
+void DpCompressProcTester::uncompress_data(const Fw::Buffer& container_buf,
                                            const FwSizeStoreType chunk_size,
                                            std::vector<U8>& out_vec) {
     std::vector<U8> out_tmp;
@@ -165,7 +165,7 @@ void DpCompressProcTester::test_chunks(const FwSizeStoreType chunk_size, std::ve
 
 void DpCompressProcTester::test_chunks_helper(const FwSizeStoreType chunk_size,
                                               std::vector<AbstractState::Chunk> chunks,
-                                              Fw::Buffer container_buf) {
+                                              Fw::Buffer& container_buf) {
     this->clearHistory();
     this->component.log_ACTIVITY_LO_DidNotCompress_ThrottleClear();
 

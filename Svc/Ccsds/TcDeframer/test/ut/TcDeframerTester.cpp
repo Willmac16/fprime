@@ -62,7 +62,7 @@ void TcDeframerTester::testNominalDeframing() {
 
     ASSERT_from_dataOut_SIZE(1);
     ASSERT_FROM_PORT_HISTORY_SIZE(1);  // only one port call
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data;
+    const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     ASSERT_EQ(outBuffer.getSize(), payloadLength);
     for (FwIndexType i = 0; i < payloadLength; i++) {
         ASSERT_EQ(outBuffer.getData()[i], payload[i]);

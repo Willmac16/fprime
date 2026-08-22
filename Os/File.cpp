@@ -10,6 +10,13 @@
 
 namespace Os {
 
+bool FileInterface::transferFrom(FileInterface& other) {
+    // Implementations opt in to direct hand-off by overriding this function; Os::File falls back to the generic
+    // duplicate-and-close path when they do not.
+    (void)other;
+    return false;
+}
+
 File::File() : m_crc_buffer(), m_handle_storage(), m_delegate(*FileInterface::getDelegate(m_handle_storage)) {
     FW_ASSERT(&this->m_delegate == reinterpret_cast<FileInterface*>(&this->m_handle_storage[0]));
 }
@@ -45,6 +52,42 @@ File& File::operator=(const File& other) {
         FW_ASSERT(&this->m_delegate == reinterpret_cast<FileInterface*>(&this->m_handle_storage[0]));
     }
     return *this;
+}
+
+File::File(File&& other)
+    : m_crc_buffer(), m_handle_storage(), m_delegate(*FileInterface::getDelegate(m_handle_storage)) {
+    FW_ASSERT(&this->m_delegate == reinterpret_cast<FileInterface*>(&this->m_handle_storage[0]));
+    this->takeOwnership(other);
+}
+
+File& File::operator=(File&& other) {
+    // Ward against self-assignment: a self-move must leave this file open and unchanged
+    if (this != &other) {
+        // Release the file this object currently holds before taking over another one
+        if (this->m_mode != OPEN_NO_MODE) {
+            this->close();
+        }
+        this->takeOwnership(other);
+    }
+    return *this;
+}
+
+void File::takeOwnership(File& other) {
+    FW_ASSERT(&this->m_delegate == reinterpret_cast<FileInterface*>(&this->m_handle_storage[0]));
+    FW_ASSERT(this->m_mode == OPEN_NO_MODE, static_cast<FwAssertArgType>(this->m_mode));
+    // Prefer a direct hand-off from the implementation: no duplication of the underlying handle
+    if (not this->m_delegate.transferFrom(other.m_delegate)) {
+        // Generic fallback: copy-construct the delegate over this object's storage, then close the source's copy
+        // of the handle so that only this object holds the file.
+        this->m_delegate.~FileInterface();
+        (void)FileInterface::getDelegate(this->m_handle_storage, &other.m_delegate);
+        FW_ASSERT(&this->m_delegate == reinterpret_cast<FileInterface*>(&this->m_handle_storage[0]));
+        other.m_delegate.close();
+    }
+    this->m_mode = other.m_mode;
+    this->m_hash = other.m_hash;
+    // The moved-from file holds nothing: it is closed and safe to destroy or reopen
+    other.m_mode = OPEN_NO_MODE;
 }
 
 File::Status File::open(const CHAR* filepath, File::Mode requested_mode) {

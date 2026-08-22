@@ -68,7 +68,7 @@ void ComQueueTester ::emitOne() {
 void ComQueueTester ::emitOneAndCheck(FwIndexType expectedIndex, U8* expectedData, FwSizeType expectedSize) {
     emitOne();
     // Check that the data buffers are identical (size + data)
-    Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(expectedIndex).data;
+    const Fw::Buffer& emittedBuffer = this->fromPortHistory_dataOut->at(expectedIndex).data;
     ASSERT_EQ(expectedSize, emittedBuffer.getSize());
     for (FwSizeType i = 0; i < expectedSize; i++) {
         ASSERT_EQ(emittedBuffer.getData()[i], expectedData[i]);
@@ -361,7 +361,7 @@ void ComQueueTester ::testReadyFirst() {
         invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
         dispatchAll();
 
-        Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(portNum).data;
+        const Fw::Buffer& emittedBuffer = this->fromPortHistory_dataOut->at(portNum).data;
         ASSERT_EQ(emittedBuffer.getSize(), comBuffer.getSize());
         for (FwSizeType i = 0; i < emittedBuffer.getSize(); i++) {
             ASSERT_EQ(emittedBuffer.getData()[i], comBuffer.getBuffAddr()[i]);
@@ -373,7 +373,7 @@ void ComQueueTester ::testReadyFirst() {
         emitOne();
         invoke_to_bufferQueueIn(portNum, buffer);
         dispatchAll();
-        Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(portNum).data;
+        const Fw::Buffer& emittedBuffer = this->fromPortHistory_dataOut->at(portNum).data;
         ASSERT_EQ(emittedBuffer.getSize(), buffer.getSize());
         for (FwSizeType i = 0; i < buffer.getSize(); i++) {
             ASSERT_EQ(buffer.getData()[i], emittedBuffer.getData()[i]);

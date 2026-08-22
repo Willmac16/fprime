@@ -120,8 +120,14 @@ void DpContainer::serializeHeader() {
 }
 
 void DpContainer::setBuffer(const Buffer& buffer) {
-    // Set the buffer
-    this->m_buffer = buffer;
+    // Mint an owning handle over the caller's memory rather than taking the caller's: `fpp-to-cpp` builds
+    // containers from an lvalue Fw::Buffer, so this cannot take the buffer by move. Two owners exist until that
+    // changes, which is why Fw::DpContainer has to declare itself a buffer owner at all.
+    this->m_buffer = this->allocateBuffer(buffer.getOriginalData(), buffer.getCapacity(), buffer.getContext());
+    if (buffer.getOriginalData() != nullptr) {
+        this->m_buffer.advance(static_cast<FwSignedSizeType>(buffer.getOffset()));
+        this->m_buffer.setSize(buffer.getSize());
+    }
     // Check that the buffer is large enough to hold a data product packet with
     // zero-size data
     const FwSizeType bufferSize = buffer.getSize();
