@@ -181,26 +181,30 @@ extern "C" {
 //     therefore serialized alongside the rest of the descriptor (this is the extra byte in SERIALIZED_SIZE), so a
 //     buffer arrives at async dispatch owned.
 //
-// All of F Prime's own hand-written source -- flight code and unit tests alike -- compiles with this enabled. What
-// does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:
+// Code emitted by `fpp-to-cpp` follows the same rules, which took four changes to the C++ writer:
 //
-//   1. Unit-test harnesses (37 `*TesterBase.cpp`, 2 `*GTestBase.cpp`) copy-assign port arguments into history
-//      entries: `_e.fwBuffer = fwBuffer;`. These need `Fw::move(fwBuffer)` or an explicit alias.
-//   2. Serializable types with an Fw.Buffer member (Svc::ComDataContextPair) copy the member in their copy
-//      constructor and copy assignment operator.
-//   3. Component code builds Fw::DpContainer from an lvalue Fw::Buffer (`DpContainer(globalId, buffer, baseId)`),
-//      which forces Fw::DpContainer::setBuffer to alias rather than take the buffer.
-//   4. Async port invocation does not transfer ownership out of the sender. `invoke()` serializes the caller's
-//      buffer into the queue and leaves it untouched, so the caller is still an owner when its buffer goes out of
-//      scope and the destructor assertion trips. The generated async `invoke()` needs to take the buffer by rvalue
-//      reference, or reset it once it has been serialized. Nothing in this repository can stand in for that: a
-//      component cannot give a buffer up on its own, by design.
+//   1. Unit-test harnesses record what they saw. A history entry aliases a buffer argument rather than copying it,
+//      and an entry holding one gets a copy assignment operator that does the same, because History::push_back
+//      assigns entries over one another. The component under test keeps its handle and stays answerable for the
+//      allocation, which is what the entry recorded before the buffer became move-only.
+//   2. A serializable type with an Fw.Buffer member (Svc::ComDataContextPair) aliases that member wherever it would
+//      have copied it -- member constructor, copy constructor, setters. Copying such a struct therefore yields a
+//      further reference rather than a second owner, the same rule the buffer itself follows.
+//   3. Generated data-product code hands dpGet's buffer to the container instead of leaving it to be destroyed:
+//      `container = DpContainer(globalId, Fw::move(buffer), baseId)`. Fw::DpContainer gained the matching
+//      constructor and setBuffer overload, so a container either takes a buffer or aliases one, and says which.
+//   4. Async port invocation transfers ownership out of the sender. Once the message is on the queue, generated
+//      dispatch empties the caller's handle, so the buffer is owned on exactly one side of the hop. That happens
+//      after the queue-full handling, not before: on the drop path the call has already returned, and on the hook
+//      path the overflow hook is handed the buffer to dispose of, so in both cases nothing was queued and the
+//      buffer is still the caller's. This step is compiled only when this setting is on, so a build with it off
+//      keeps the behavior it has always had.
 //
-// Item 4 has a counterpart that is not a blocker but a consequence worth expecting. Async dispatch on the far side
-// deserializes into a local Fw::Buffer -- now an owner -- passes it to the handler by reference, and destroys it.
-// A handler that neither moves the buffer on nor returns it will therefore assert. That is the leak this setting
-// exists to find, but it means handlers written to forward a buffer by reference need revisiting before a system
-// runs clean.
+// Item 4 has a counterpart that is not a defect but a consequence worth expecting. Async dispatch on the far side
+// deserializes into a local Fw::Buffer -- an owner -- passes it to the handler by reference, and destroys it. A
+// handler that neither moves the buffer on nor returns it will therefore assert. That is the leak this setting
+// exists to find, but it means handlers written to forward a buffer by reference need revisiting before a whole
+// system runs clean with this enabled.
 #ifndef FW_BUFFER_STRICT_OWNERSHIP
 #define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when an owned buffer is destroyed
 #endif

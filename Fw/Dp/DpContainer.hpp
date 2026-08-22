@@ -9,6 +9,7 @@
 
 #include "Fw/Buffer/Buffer.hpp"
 #include "Fw/Dp/DpStateEnumAc.hpp"
+#include "Fw/LanguageHelpers.hpp"
 #include "Fw/Time/Time.hpp"
 #include "Fw/Types/SuccessEnumAc.hpp"
 #include "Utils/Hash/Hash.hpp"
@@ -72,6 +73,16 @@ class DpContainer {
     //! Constructor for initialized container
     DpContainer(FwDpIdType id,            //!< The container id
                 const Fw::Buffer& buffer  //!< The buffer
+    );
+
+    //! Constructor for container that takes its packet buffer
+    //!
+    //! Use this where the caller holds the only handle on the buffer -- the one `dpGet` fetches from the buffer
+    //! manager -- and means to hand it over. The container takes the buffer, so returning the packet is its job from
+    //! here on and the caller's handle is left empty. The constructor above aliases instead, for a caller that has
+    //! only a reference to lend.
+    DpContainer(FwDpIdType id,       //!< The container id
+                Fw::Buffer&& buffer  //!< The buffer to take
     );
 
     //! Constructor for container with default initialization
@@ -190,8 +201,16 @@ class DpContainer {
         this->m_dataSize = dataSize;
     }
 
-    //! Set the packet buffer
+    //! Set the packet buffer, aliasing the caller's
+    //!
+    //! Responsibility for the allocation stays with whoever passed the buffer in.
     void setBuffer(const Buffer& buffer  //!< The packet buffer
+    );
+
+    //! Set the packet buffer, taking it from the caller
+    //!
+    //! The container becomes answerable for returning the allocation and the caller's handle is left empty.
+    void setBuffer(Buffer&& buffer  //!< The packet buffer to take
     );
 
     //! Shrink the Fw::Buffer size to match the
@@ -269,6 +288,13 @@ class DpContainer {
 
     //! Initialize the user data field
     void initUserDataField();
+
+    //! Take a packet buffer and set up the data buffer over it
+    //!
+    //! The shared implementation behind both setBuffer overloads. It takes the buffer it is given, so the caller
+    //! decides what to hand over: an alias where the buffer is only lent, or the buffer itself where it is given up.
+    void takeBuffer(Buffer&& buffer  //!< The packet buffer to take
+    );
 
   public:
     // ----------------------------------------------------------------------

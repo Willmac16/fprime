@@ -25,6 +25,15 @@ DpContainer::DpContainer(FwDpIdType id, const Fw::Buffer& buffer)
     this->setBuffer(buffer);
 }
 
+DpContainer::DpContainer(FwDpIdType id, Fw::Buffer&& buffer)
+    : m_id(id), m_priority(0), m_timeTag(), m_procTypes(0), m_dpState(), m_dataSize(0), m_buffer(), m_dataBuffer() {
+    // Initialize the user data field
+    this->initUserDataField();
+    // Take the packet buffer
+    // This action also updates the data buffer
+    this->setBuffer(Fw::move(buffer));
+}
+
 DpContainer::DpContainer()
     : m_id(0), m_priority(0), m_timeTag(), m_procTypes(0), m_dataSize(0), m_buffer(), m_dataBuffer() {
     // Initialize the user data field
@@ -120,17 +129,26 @@ void DpContainer::serializeHeader() {
 }
 
 void DpContainer::setBuffer(const Buffer& buffer) {
-    // Alias the caller's buffer rather than taking it: `fpp-to-cpp` builds containers from an lvalue Fw::Buffer, so
-    // this cannot take the buffer by move. Responsibility for the allocation stays with whoever passed it in.
-    this->m_buffer = buffer.alias();
+    // Alias rather than take: the caller lent a reference and stays answerable for returning the allocation.
+    this->takeBuffer(buffer.alias());
+}
+
+void DpContainer::setBuffer(Buffer&& buffer) {
+    // Take the caller's buffer, leaving its handle empty. Returning the packet is this container's job from here on.
+    this->takeBuffer(Fw::move(buffer));
+}
+
+void DpContainer::takeBuffer(Buffer&& buffer) {
+    this->m_buffer = Fw::move(buffer);
+    // Read the geometry back out of m_buffer rather than the argument: the move above emptied the argument.
     // Check that the buffer is large enough to hold a data product packet with
     // zero-size data
-    const FwSizeType bufferSize = buffer.getSize();
+    const FwSizeType bufferSize = this->m_buffer.getSize();
     FW_ASSERT(bufferSize >= MIN_PACKET_SIZE, static_cast<FwAssertArgType>(bufferSize),
               static_cast<FwAssertArgType>(MIN_PACKET_SIZE));
     // Initialize the data buffer
-    U8* const buffAddr = buffer.getData();
-    const FwSizeType dataCapacity = buffer.getSize() - MIN_PACKET_SIZE;
+    U8* const buffAddr = this->m_buffer.getData();
+    const FwSizeType dataCapacity = bufferSize - MIN_PACKET_SIZE;
     // Check that data buffer is in bounds for packet buffer
     const FwSizeType minBufferSize = DATA_OFFSET + dataCapacity;
     FW_ASSERT(bufferSize >= minBufferSize, static_cast<FwAssertArgType>(bufferSize),

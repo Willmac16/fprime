@@ -212,16 +212,25 @@ they are greppable.
 ##### Status
 
 The setting is off by default. Every hand-written translation unit in F´ — flight code and unit tests alike —
-compiles with it enabled; what does not is code emitted by `fpp-to-cpp`:
+compiles with it enabled, and so does the code `fpp-to-cpp` emits, which follows the same rules:
 
-1. Generated test harnesses copy-assign `Fw::Buffer` into port-history entries.
-2. Generated serializable types with an `Fw.Buffer` member copy it in their copy constructor and assignment operator.
-3. Generated component code constructs `Fw::DpContainer` from an lvalue `Fw::Buffer`.
-4. Generated async `invoke()` serializes the caller's buffer into the queue and leaves it untouched, so the caller is
-   still an owner when its buffer goes out of scope. It needs to take the buffer by rvalue reference, or reset it
-   once serialized. Nothing in F´ can stand in for this: a component cannot give a buffer up on its own, by design.
+1. Generated test harnesses alias an `Fw::Buffer` into a port-history entry rather than copying it, and an entry
+   holding one carries a copy assignment operator that does the same. A history entry records what the tester saw;
+   the component under test keeps its handle.
+2. Generated serializable types with an `Fw.Buffer` member alias it wherever they would have copied it, so copying
+   such a type yields a further reference rather than a second owner.
+3. Generated component code hands `dpGet`'s buffer to the container it builds, using the `Fw::DpContainer`
+   constructor and `setBuffer` overload that take a buffer rather than aliasing one.
+4. Generated async dispatch empties the caller's handle once the message is on the queue, so a buffer that crosses an
+   async hop is owned on exactly one side of it. This happens after the queue-full handling: on the drop and hook
+   paths nothing was queued, so the buffer is still the caller's to deal with.
 
-The full list, with what the autocoder would have to emit instead, is documented against the macro in
+What remains is a consequence rather than a defect. Async dispatch on the far side deserializes into a local
+`Fw::Buffer` — an owner — and destroys it after the handler returns, so a handler that neither moves the buffer on
+nor returns it asserts. That is the leak this setting exists to find, and handlers written to forward a buffer by
+reference need revisiting before a whole system runs clean with it enabled.
+
+The rules, and the four autocoder changes that follow them, are documented against the macro in
 `config/FpConfig.h`.
 
 `Fw::Buffer`'s behavior under the setting is covered by `Fw_Buffer_strict_ownership_ut_exe`, a separate test
