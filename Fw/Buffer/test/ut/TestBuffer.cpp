@@ -3,6 +3,7 @@
 //
 #include <gtest/gtest.h>
 #include <Fw/FPrimeBasicTypes.hpp>
+#include <utility>
 #include "Fw/Buffer/Buffer.hpp"
 #include "Fw/Types/test/ut/LinearBufferBaseTester.hpp"
 
@@ -125,6 +126,77 @@ class BufferTester {
         ASSERT_DEATH_IF_SUPPORTED(buffer.advance(static_cast<FwSignedSizeType>(sizeof(data))), "");
     }
 
+    void test_move() {
+        U8 data[100];
+        Fw::Buffer buffer(data, sizeof(data), 1234);
+        buffer.advance(7);
+
+        // Move construction hands the wrapped data over wholesale
+        Fw::Buffer moved(std::move(buffer));
+        ASSERT_EQ(moved.getOriginalData(), data);
+        ASSERT_EQ(moved.getData(), data + 7);
+        ASSERT_EQ(moved.getOffset(), 7);
+        ASSERT_EQ(moved.getSize(), sizeof(data) - 7);
+        ASSERT_EQ(moved.getCapacity(), sizeof(data));
+        ASSERT_EQ(moved.getContext(), 1234);
+
+        // ... and leaves the source referring to nothing, so it cannot be used to return the same allocation twice
+        ASSERT_FALSE(buffer.isValid());
+        ASSERT_EQ(buffer.getOriginalData(), nullptr);
+        ASSERT_EQ(buffer.getData(), nullptr);
+        ASSERT_EQ(buffer.getOffset(), 0);
+        ASSERT_EQ(buffer.getSize(), 0);
+        ASSERT_EQ(buffer.getCapacity(), 0);
+        ASSERT_EQ(buffer.getContext(), Fw::Buffer::NO_CONTEXT);
+
+        // The moved-to buffer's serialization representation follows the data it now wraps
+        auto serializer = moved.getSerializer();
+        ASSERT_EQ(serializer.getBuffAddr(), data + 7);
+        ASSERT_EQ(serializer.getCapacity(), sizeof(data) - 7);
+
+        // Move assignment behaves the same way
+        Fw::Buffer destination;
+        destination = std::move(moved);
+        ASSERT_EQ(destination.getOriginalData(), data);
+        ASSERT_EQ(destination.getData(), data + 7);
+        ASSERT_EQ(destination.getOffset(), 7);
+        ASSERT_EQ(destination.getSize(), sizeof(data) - 7);
+        ASSERT_EQ(destination.getCapacity(), sizeof(data));
+        ASSERT_EQ(destination.getContext(), 1234);
+        ASSERT_FALSE(moved.isValid());
+        ASSERT_EQ(moved.getOriginalData(), nullptr);
+        ASSERT_EQ(moved.getContext(), Fw::Buffer::NO_CONTEXT);
+
+        // A moved-from buffer is not poisoned: it can wrap data again
+        U8 other[10];
+        moved.set(other, sizeof(other), 5678);
+        ASSERT_TRUE(moved.isValid());
+        ASSERT_EQ(moved.getData(), other);
+        ASSERT_EQ(destination.getOriginalData(), data);
+
+        // Self-move-assignment leaves the buffer untouched rather than clearing it
+        Fw::Buffer* alias = &destination;
+        destination = std::move(*alias);
+        ASSERT_EQ(destination.getOriginalData(), data);
+        ASSERT_EQ(destination.getOffset(), 7);
+        ASSERT_EQ(destination.getSize(), sizeof(data) - 7);
+        ASSERT_EQ(destination.getContext(), 1234);
+
+        // Moving an empty buffer is well-defined: both ends up empty
+        Fw::Buffer empty;
+        Fw::Buffer empty_destination(std::move(empty));
+        ASSERT_FALSE(empty.isValid());
+        ASSERT_FALSE(empty_destination.isValid());
+        ASSERT_EQ(empty_destination.getContext(), Fw::Buffer::NO_CONTEXT);
+
+        // Move-assigning an empty buffer over a valid one drops the valid one's data
+        empty_destination = std::move(destination);
+        ASSERT_TRUE(empty_destination.isValid());
+        empty_destination = std::move(empty);
+        ASSERT_FALSE(empty_destination.isValid());
+        ASSERT_EQ(empty_destination.getOriginalData(), nullptr);
+    }
+
     void test_representations() {
         U8 data[100];
         Fw::Buffer buffer(data, sizeof(data), 1234);
@@ -184,6 +256,11 @@ TEST(Nominal, BasicBuffer) {
 TEST(Nominal, Advance) {
     Fw::BufferTester tester;
     tester.test_advance();
+}
+
+TEST(Nominal, Move) {
+    Fw::BufferTester tester;
+    tester.test_move();
 }
 
 TEST(Nominal, Representations) {

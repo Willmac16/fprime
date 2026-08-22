@@ -6,6 +6,7 @@
 #include <Fw/Types/StringUtils.hpp>
 #include <Os/SandboxedFile.hpp>
 #include <cstring>
+#include <utility>
 
 namespace Os {
 
@@ -15,6 +16,27 @@ SandboxedFile::~SandboxedFile() {
     if (m_file.isOpen()) {
         m_file.close();
     }
+}
+
+SandboxedFile::SandboxedFile(SandboxedFile&& other)
+    : m_file(std::move(other.m_file)), m_allowedDirectory(other.m_allowedDirectory), m_configured(other.m_configured) {
+    // Leave the source as a freshly default-constructed SandboxedFile
+    other.m_allowedDirectory = "/";
+    other.m_configured = true;
+}
+
+SandboxedFile& SandboxedFile::operator=(SandboxedFile&& other) {
+    // Ward against self-assignment: a self-move must leave this file open and configured as it was
+    if (this != &other) {
+        // Os::File move assignment closes any file this object currently holds
+        this->m_file = std::move(other.m_file);
+        this->m_allowedDirectory = other.m_allowedDirectory;
+        this->m_configured = other.m_configured;
+        // Leave the source as a freshly default-constructed SandboxedFile
+        other.m_allowedDirectory = "/";
+        other.m_configured = true;
+    }
+    return *this;
 }
 
 void SandboxedFile::configure(const char* allowedDirectory) {

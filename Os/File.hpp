@@ -199,6 +199,29 @@ class FileInterface {
     //!
     virtual FileHandle* getHandle() = 0;
 
+    //! \brief take over the open file held by another delegate of the same implementation
+    //!
+    //! This is the hook used by `Os::File`'s move constructor and move assignment operator. Implementations that
+    //! can hand their open file over directly (e.g. by copying a file descriptor and invalidating the source's
+    //! copy) should override this function to do so and return `true`. On a successful transfer:
+    //!
+    //! 1. This object must hold the file `other` held on entry.
+    //! 2. `other` must be left holding no file at all, such that closing or destroying it is a no-op. `other` must
+    //!    not be closed by this call: the underlying resource now belongs to this object.
+    //!
+    //! `Os::File` guarantees that `other` refers to a delegate of the same implementation type, and that this
+    //! object holds no open file when the call is made.
+    //!
+    //! The default implementation returns `false`, which is always safe: `Os::File` then falls back to
+    //! constructing a copy of `other`'s delegate and closing `other`. That fallback is correct for every
+    //! implementation whose copy constructor duplicates the underlying handle, but it costs a duplicate-and-close
+    //! of that handle. Implementations predating this function keep working unchanged via the fallback.
+    //!
+    //! \param other: delegate to take the open file from
+    //! \return true when the transfer was performed, false to request the generic fallback
+    //!
+    virtual bool transferFrom(FileInterface& other);
+
     //! \brief provide a pointer to a file delegate object
     //!
     //! This function must return a pointer to a `FileInterface` object that contains the real implementation of the
@@ -242,6 +265,29 @@ class File final : public FileInterface {
 
     //! \brief assignment operator that copies the internal representation
     File& operator=(const File& other);
+
+    //! \brief move constructor that transfers the open file from `other`
+    //!
+    //! Takes over the file held by `other`, leaving `other` closed and in the default-constructed state. Unlike a
+    //! copy -- which leaves both objects holding an independent handle on the same file -- a move leaves exactly
+    //! one owner, so it is the right operation when a file is handed off for good (returned from a factory,
+    //! stored into a member, passed on to another object).
+    //!
+    //! Implementations that support `FileInterface::transferFrom` hand the underlying handle over directly.
+    //! Others fall back to duplicating the handle and closing `other`'s copy, which has the same observable
+    //! result. Either way the read/write position carries over with the file.
+    //!
+    //! \param other: file to take the open file from
+    File(File&& other);
+
+    //! \brief move assignment operator that transfers the open file from `other`
+    //!
+    //! Closes any file this object currently holds, then takes over the file held by `other` as described for the
+    //! move constructor. Self-move-assignment is a no-op and leaves this file open and unchanged.
+    //!
+    //! \param other: file to take the open file from
+    //! \return reference to this file
+    File& operator=(File&& other);
 
     //! \brief determine if the file is open
     //! \return true if file is open, false otherwise
@@ -584,6 +630,14 @@ class File final : public FileInterface {
     Status finalizeCrc(U32& crc);
 
   private:
+    //! \brief take over the open file held by `other`, leaving `other` closed
+    //!
+    //! Shared implementation of the move constructor and move assignment operator. This object must not hold an
+    //! open file when this is called.
+    //!
+    //! \param other: file to take the open file from
+    void takeOwnership(File& other);
+
     static const U32 INITIAL_CRC = 0xFFFFFFFF;  //!< Initial value for CRC calculation
 
     Mode m_mode = Mode::OPEN_NO_MODE;  //!< Stores mode for error checking

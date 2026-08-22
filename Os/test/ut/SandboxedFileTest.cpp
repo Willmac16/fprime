@@ -7,6 +7,7 @@
 #include <Os/SandboxedFile.hpp>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 // ======================================================================
 // SandboxedFile tests
@@ -17,6 +18,7 @@ class SandboxedFileTest : public ::testing::Test {
     void SetUp() override { Os::FileSystem::createDirectory("/tmp/sandbox_test/"); }
     void TearDown() override {
         Os::FileSystem::removeFile("/tmp/sandbox_test/test_file.bin");
+        Os::FileSystem::removeFile("/tmp/sandbox_test/other_file.bin");
         Os::FileSystem::removeDirectory("/tmp/sandbox_test/");
     }
 };
@@ -113,6 +115,65 @@ TEST_F(SandboxedFileTest, OpenOverlongPathRejected) {
     auto status = file.open(longPath, Os::File::OPEN_READ);
     ASSERT_EQ(Os::File::OUTSIDE_SANDBOX, status);
     ASSERT_FALSE(file.isOpen());
+}
+
+TEST_F(SandboxedFileTest, MoveConstructionCarriesFileAndSandbox) {
+    Os::SandboxedFile source;
+    source.configure("/tmp/sandbox_test/");
+    ASSERT_EQ(Os::File::OP_OK, source.open("/tmp/sandbox_test/test_file.bin", Os::File::OPEN_CREATE));
+
+    Os::SandboxedFile destination(std::move(source));
+
+    // The destination holds the open file and the sandbox it was configured with
+    ASSERT_TRUE(destination.isOpen());
+    ASSERT_STREQ("/tmp/sandbox_test/", destination.getSandboxDirectory());
+    // Writing through the destination confirms the handle really came across
+    const U8 payload[] = {1, 2, 3, 4};
+    FwSizeType size = sizeof(payload);
+    ASSERT_EQ(Os::File::OP_OK, destination.write(payload, size));
+    ASSERT_EQ(sizeof(payload), size);
+
+    // The source is left as if freshly constructed: closed, with the default sandbox
+    ASSERT_FALSE(source.isOpen());
+    ASSERT_TRUE(source.isConfigured());
+    ASSERT_STREQ("/", source.getSandboxDirectory());
+
+    destination.close();
+}
+
+TEST_F(SandboxedFileTest, MoveAssignmentClosesDestinationFile) {
+    Os::SandboxedFile source;
+    source.configure("/tmp/sandbox_test/");
+    ASSERT_EQ(Os::File::OP_OK, source.open("/tmp/sandbox_test/test_file.bin", Os::File::OPEN_CREATE));
+
+    Os::SandboxedFile destination;
+    ASSERT_EQ(Os::File::OP_OK, destination.open("/tmp/sandbox_test/other_file.bin", Os::File::OPEN_CREATE));
+
+    destination = std::move(source);
+
+    ASSERT_TRUE(destination.isOpen());
+    ASSERT_STREQ("/tmp/sandbox_test/", destination.getSandboxDirectory());
+    ASSERT_FALSE(source.isOpen());
+    ASSERT_STREQ("/", source.getSandboxDirectory());
+
+    // The moved-from object is reusable, and its sandbox is back to the permissive default
+    ASSERT_EQ(Os::File::OP_OK, source.open("/tmp/sandbox_test/other_file.bin", Os::File::OPEN_WRITE));
+    source.close();
+    destination.close();
+}
+
+TEST_F(SandboxedFileTest, SelfMoveAssignmentLeavesFileOpen) {
+    Os::SandboxedFile file;
+    file.configure("/tmp/sandbox_test/");
+    ASSERT_EQ(Os::File::OP_OK, file.open("/tmp/sandbox_test/test_file.bin", Os::File::OPEN_CREATE));
+
+    // Assign through an alias so this is a genuine self-move rather than a diagnosable `x = std::move(x)`
+    Os::SandboxedFile* alias = &file;
+    file = std::move(*alias);
+
+    ASSERT_TRUE(file.isOpen());
+    ASSERT_STREQ("/tmp/sandbox_test/", file.getSandboxDirectory());
+    file.close();
 }
 
 int main(int argc, char** argv) {

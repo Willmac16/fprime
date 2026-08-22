@@ -4,6 +4,7 @@
 // ======================================================================
 #include "Os/test/ut/file/CommonTests.hpp"
 #include <gtest/gtest.h>
+#include <utility>
 #include "Os/File.hpp"
 
 static const U32 RANDOM_BOUND = 1000;
@@ -64,6 +65,38 @@ TEST_F(Functionality, CopyConstructor) {
     open_rule.apply(*tester);
     copy_rule.apply(*tester);
     close_rule.apply(*tester);
+}
+
+// Ensure that the move assignment operator hands the open file over and leaves the source closed
+TEST_F(Functionality, MoveAssignmentOperator) {
+    Os::Test::FileTest::Tester::OpenFileCreate open_rule(false);
+    Os::Test::FileTest::Tester::MoveAssignment move_rule;
+    Os::Test::FileTest::Tester::CloseFile close_rule;
+    open_rule.apply(*tester);
+    move_rule.apply(*tester);
+    close_rule.apply(*tester);
+}
+
+// Ensure the move constructor hands the open file over and leaves the source closed
+TEST_F(Functionality, MoveConstructor) {
+    Os::Test::FileTest::Tester::OpenFileCreate open_rule(false);
+    Os::Test::FileTest::Tester::MoveConstruction move_rule;
+    Os::Test::FileTest::Tester::CloseFile close_rule;
+    open_rule.apply(*tester);
+    move_rule.apply(*tester);
+    close_rule.apply(*tester);
+}
+
+// Moving a closed file is well-defined: both files end up closed
+TEST_F(Functionality, MoveOfClosedFile) {
+    Os::File source;
+    ASSERT_FALSE(source.isOpen());
+    Os::File destination(std::move(source));
+    ASSERT_FALSE(source.isOpen());
+    ASSERT_FALSE(destination.isOpen());
+    destination = std::move(source);
+    ASSERT_FALSE(source.isOpen());
+    ASSERT_FALSE(destination.isOpen());
 }
 
 // Ensure that open works via the bounded char* overload
@@ -315,6 +348,8 @@ TEST_F(Functionality, RandomizedInterfaceTesting) {
     Os::Test::FileTest::Tester::CloseFile close_file_rule;
     Os::Test::FileTest::Tester::CopyConstruction copy_construction;
     Os::Test::FileTest::Tester::CopyAssignment copy_assignment;
+    Os::Test::FileTest::Tester::MoveConstruction move_construction;
+    Os::Test::FileTest::Tester::MoveAssignment move_assignment;
     Os::Test::FileTest::Tester::OpenInvalidModes open_invalid_modes_rule;
     Os::Test::FileTest::Tester::PreallocateWithoutOpen preallocate_without_open_rule;
     Os::Test::FileTest::Tester::SeekWithoutOpen seek_without_open_rule;
@@ -336,6 +371,8 @@ TEST_F(Functionality, RandomizedInterfaceTesting) {
                                                         &close_file_rule,
                                                         &copy_assignment,
                                                         &copy_construction,
+                                                        &move_assignment,
+                                                        &move_construction,
                                                         &open_invalid_modes_rule,
                                                         &preallocate_without_open_rule,
                                                         &seek_without_open_rule,
@@ -378,6 +415,8 @@ TEST_F(FunctionalIO, RandomizedTesting) {
     Os::Test::FileTest::Tester::Flush flush_rule;
     Os::Test::FileTest::Tester::CopyConstruction copy_construction;
     Os::Test::FileTest::Tester::CopyAssignment copy_assignment;
+    Os::Test::FileTest::Tester::MoveConstruction move_construction;
+    Os::Test::FileTest::Tester::MoveAssignment move_assignment;
     Os::Test::FileTest::Tester::IncrementalCrc incremental_crc_rule;
     Os::Test::FileTest::Tester::FinalizeCrc finalize_crc_rule;
     Os::Test::FileTest::Tester::FullCrc full_crc_rule;
@@ -401,6 +440,8 @@ TEST_F(FunctionalIO, RandomizedTesting) {
                                                         &close_file_rule,
                                                         &copy_assignment,
                                                         &copy_construction,
+                                                        &move_assignment,
+                                                        &move_construction,
                                                         &read_rule,
                                                         &write_rule,
                                                         &seek_rule,

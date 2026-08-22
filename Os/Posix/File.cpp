@@ -66,6 +66,17 @@ PosixFile& PosixFile::operator=(const PosixFile& other) {
     return *this;
 }
 
+bool PosixFile::transferFrom(FileInterface& other) {
+    // Os::File only ever pairs delegates of the same implementation type
+    PosixFile& source = static_cast<PosixFile&>(other);
+    if (this != &source) {
+        // Adopt the descriptor outright: no dup, and the source must not close what it no longer owns
+        this->m_handle.m_file_descriptor = source.m_handle.m_file_descriptor;
+        source.m_handle.m_file_descriptor = PosixFileHandle::INVALID_FILE_DESCRIPTOR;
+    }
+    return true;
+}
+
 mode_t PosixFile::map_open_create_mode(const U32 create_mode) {
     mode_t out_mode = 0;
 

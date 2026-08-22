@@ -61,6 +61,37 @@ The following contractual expectations apply:
 * Serialization (`serializeTo`/`deserializeFrom`) carries the original pointer, offset, and capacity so that
   provenance survives transfer across ports.
 
+#### 2.1.2 Copy and Move Semantics
+
+`Fw::Buffer` is both copyable and movable. Neither operation touches the wrapped data: only the pointer, offset, size,
+capacity, and context are transferred. The difference is what happens to the source.
+
+| Operation | Source after the operation | Use when |
+|---|---|---|
+| Copy construction / copy assignment | Unchanged: it still refers to the wrapped data | Both buffers are meant to stay valid, e.g. retaining a reference while forwarding another |
+| Move construction / move assignment | Reset to the default-constructed state: null pointer, zero offset/size/capacity, `NO_CONTEXT` | The buffer is handed off for good, e.g. stored into a member for later return, or returned from a function |
+
+`Fw::Buffer` does not own the memory it wraps and does not free anything, so a move releases nothing. What it does do
+is make the hand-off of *responsibility* explicit. Because the moved-from buffer is left invalid, it cannot be used to
+return, free, or re-send the same allocation a second time — the buffer-ownership mistake that a plain copy leaves
+undetectable. Prefer a move wherever a buffer is passed along rather than shared.
+
+```c++
+// Take custody of an incoming buffer for later return. The caller's buffer is left invalid, so it cannot
+// be returned or re-sent while this component still holds it.
+void MyComponent::bufferSendIn_handler(FwIndexType portNum, Fw::Buffer& buffer) {
+    this->m_heldBuffer = std::move(buffer);
+    FW_ASSERT(not buffer.isValid());
+}
+```
+
+Note that `Fw::BufferSend` and `Fw::BufferGet` pass `Fw::Buffer` by non-`const` reference, so a buffer cannot be moved
+directly into a port call. Move at the point where custody actually changes: into a member, into a queue entry, or out
+of a function returning `Fw::Buffer`.
+
+A moved-from buffer is reset, not poisoned: calling `set()` on it, or assigning another buffer to it, makes it usable
+again. Self-move-assignment is a no-op and leaves the buffer unchanged.
+
 ### 2.2 The Port Fw::BufferGet
 
 As shown in the following diagram, `Fw::BufferGet` has one argument `size` of type `U32`. It returns a value of type

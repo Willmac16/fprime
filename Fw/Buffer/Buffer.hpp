@@ -81,6 +81,21 @@ class Buffer : public Fw::Serializable {
     //!
     Buffer(const Buffer& src);
 
+    //! Construct a buffer by transferring the wrapped data from another buffer
+    //!
+    //! Move construction transfers the wrapped data, offset, size, capacity, and context from `src` into the newly
+    //! constructed buffer. `src` is left in the default-constructed state: a null data pointer, zero offset, size,
+    //! and capacity, and the no-context value of 0xFFFFFFFF.
+    //!
+    //! Fw::Buffer does not free the memory it wraps, so a move does not release anything. What it does do is make
+    //! the transfer of *responsibility* for that memory explicit: after the move only the destination refers to
+    //! the wrapped data, so the moved-from buffer cannot be used to return or re-send the same allocation. Prefer
+    //! a move over a copy anywhere a buffer is handed off for good -- stored into a member for later return, placed
+    //! in a queue, or returned from a function -- and reserve copies for cases where both buffers must stay valid.
+    //!
+    //! \param src: buffer to transfer the wrapped data from
+    Buffer(Buffer&& src);
+
     //! Construct a buffer to wrap the given data pointer of given size
     //!
     //! Wraps the given data pointer with given size in a buffer. The context by default is set to NO_CONTEXT but can
@@ -93,6 +108,16 @@ class Buffer : public Fw::Serializable {
     //! Assignment operator to set given buffer's members from another without copying wrapped data
     //!
     Buffer& operator=(const Buffer& src);
+
+    //! Move assignment operator transferring the wrapped data from another buffer
+    //!
+    //! Transfers the wrapped data, offset, size, capacity, and context from `src` into this buffer, leaving `src`
+    //! in the default-constructed state. See the move constructor for the ownership rationale. Self-move-assignment
+    //! is a no-op and leaves this buffer unchanged.
+    //!
+    //! \param src: buffer to transfer the wrapped data from
+    //! \return reference to this buffer
+    Buffer& operator=(Buffer&& src);
 
     //! Equality operator returning true when buffers are equivalent
     //!
@@ -229,6 +254,11 @@ class Buffer : public Fw::Serializable {
 #endif
 
   private:
+    //! Reset this buffer to the default-constructed state without touching the wrapped data
+    //!
+    //! Used to invalidate the source of a move so that only one buffer refers to the wrapped data.
+    void invalidate();
+
     Fw::ExternalSerializeBuffer m_serialize_repr;  //<! Representation for serialization and deserialization functions
     U8* m_bufferData;                              //<! data - A pointer to the original allocation
     FwSizeType m_offset;                           //<! offset - Offset of the current data within the allocation

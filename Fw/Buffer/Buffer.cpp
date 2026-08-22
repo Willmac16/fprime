@@ -42,6 +42,21 @@ Buffer::Buffer(const Buffer& src)
     }
 }
 
+Buffer::Buffer(Buffer&& src)
+    : Serializable(),
+      m_serialize_repr(),
+      m_bufferData(src.m_bufferData),
+      m_offset(src.m_offset),
+      m_size(src.m_size),
+      m_capacity(src.m_capacity),
+      m_context(src.m_context) {
+    if (this->m_bufferData != nullptr) {
+        this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
+    }
+    // Only this buffer may refer to the wrapped data once the move completes
+    src.invalidate();
+}
+
 Buffer::Buffer(U8* data, FwSizeType size, U32 context)
     : Serializable(),
       m_serialize_repr(),
@@ -70,9 +85,37 @@ Buffer& Buffer::operator=(const Buffer& src) {
     return *this;
 }
 
+Buffer& Buffer::operator=(Buffer&& src) {
+    // Ward against self-assignment: a self-move must not invalidate this buffer
+    if (this != &src) {
+        this->m_bufferData = src.m_bufferData;
+        this->m_offset = src.m_offset;
+        this->m_size = src.m_size;
+        this->m_capacity = src.m_capacity;
+        this->m_context = src.m_context;
+        if (this->m_bufferData != nullptr) {
+            this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);
+        } else {
+            this->m_serialize_repr.clear();
+        }
+        // Only this buffer may refer to the wrapped data once the move completes
+        src.invalidate();
+    }
+    return *this;
+}
+
 bool Buffer::operator==(const Buffer& src) const {
     return (this->m_bufferData == src.m_bufferData) && (this->m_offset == src.m_offset) &&
            (this->m_size == src.m_size) && (this->m_capacity == src.m_capacity) && (this->m_context == src.m_context);
+}
+
+void Buffer::invalidate() {
+    this->m_bufferData = nullptr;
+    this->m_offset = 0;
+    this->m_size = 0;
+    this->m_capacity = 0;
+    this->m_context = NO_CONTEXT;
+    this->m_serialize_repr.clear();
 }
 
 bool Buffer::isValid() const {
