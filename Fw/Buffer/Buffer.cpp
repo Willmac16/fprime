@@ -294,6 +294,14 @@ Fw::SerializeStatus Buffer::serializeTo(Fw::SerialBufferBase& buffer, Fw::Endian
     if (stat != Fw::FW_SERIALIZE_OK) {
         return stat;
     }
+#if FW_BUFFER_STRICT_OWNERSHIP
+    // Ownership travels with the descriptor. An async port call serializes the buffer into a queue rather than
+    // taking it, so this is how responsibility reaches the far side of that queue.
+    stat = buffer.serializeFrom(static_cast<U8>(this->m_ownership), mode);
+    if (stat != Fw::FW_SERIALIZE_OK) {
+        return stat;
+    }
+#endif
     return stat;
 }
 
@@ -323,9 +331,19 @@ Fw::SerializeStatus Buffer::deserializeFrom(Fw::SerialBufferBase& buffer, Fw::En
         return stat;
     }
 
-    // Ownership is a local property and is not carried on the wire: a deserialized buffer is a reference until
-    // something in this address space claims it
+#if FW_BUFFER_STRICT_OWNERSHIP
+    U8 ownership = static_cast<U8>(OwnershipState::NOT_OWNED);
+    stat = buffer.deserializeTo(ownership, mode);
+    if (stat != Fw::FW_SERIALIZE_OK) {
+        return stat;
+    }
+    FW_ASSERT((ownership == static_cast<U8>(OwnershipState::NOT_OWNED)) ||
+                  (ownership == static_cast<U8>(OwnershipState::OWNED)),
+              static_cast<FwAssertArgType>(ownership));
+    this->m_ownership = static_cast<OwnershipState>(ownership);
+#else
     this->m_ownership = OwnershipState::NOT_OWNED;
+#endif
 
     if (this->m_bufferData != nullptr) {
         this->m_serialize_repr.setExtBuffer(this->m_bufferData + this->m_offset, this->m_size);

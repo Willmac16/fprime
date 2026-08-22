@@ -157,14 +157,23 @@ extern "C" {
 // to be silenced, and the silencing would hide real leaks just as well.
 //
 // So: a move carries ownership to the destination, and a copy or Fw::Buffer::alias() produces a further reference
-// that is never an owner. Ownership does not survive serialization, so a buffer arriving over an async port is a
-// reference until something in this address space claims it.
+// that is never an owner.
 //
 // Granting and revoking ownership is restricted to the component answerable for the memory. Fw::Buffer's claim and
 // release are private, reachable only through the Fw::BufferOwner mixin that a buffer manager derives from. Were
 // they public, releasing a buffer would be the obvious way to quiet an assertion, and quieting that assertion is
 // exactly what a leak looks like -- so a component holding a buffer it owns has one way to be rid of it, which is to
 // hand it to someone else.
+//
+// The two kinds of port call differ, and the difference is the point:
+//
+//   - A sync port call passes Fw::Buffer by reference. It is the same object on both sides, so the caller keeps
+//     ownership by default and a callee that means to keep the buffer must move out of the reference it was given,
+//     which empties the caller's.
+//   - An async port call serializes the buffer into a message queue rather than passing it, so it must transfer
+//     ownership: the sender gives the buffer up and the far side becomes answerable for it. The ownership state is
+//     therefore serialized alongside the rest of the descriptor (this is the extra byte in SERIALIZED_SIZE), so a
+//     buffer arrives at async dispatch owned.
 //
 // All of F Prime's own hand-written source -- flight code and unit tests alike -- compiles with this enabled. What
 // does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:
@@ -175,15 +184,17 @@ extern "C" {
 //      constructor and copy assignment operator.
 //   3. Component code builds Fw::DpContainer from an lvalue Fw::Buffer (`DpContainer(globalId, buffer, baseId)`),
 //      which forces Fw::DpContainer::setBuffer to alias rather than take the buffer.
+//   4. Async port invocation does not transfer ownership out of the sender. `invoke()` serializes the caller's
+//      buffer into the queue and leaves it untouched, so the caller is still an owner when its buffer goes out of
+//      scope and the destructor assertion trips. The generated async `invoke()` needs to take the buffer by rvalue
+//      reference, or reset it once it has been serialized. Nothing in this repository can stand in for that: a
+//      component cannot give a buffer up on its own, by design.
 //
-// Two things are worth knowing before relying on the runtime check:
-//
-//   - A component that hands a buffer to an async port must release() it afterwards. The port call serializes the
-//     buffer into a queue rather than taking it, so the sender is still the owner as far as its own buffer is
-//     concerned. Async dispatch on the far side deserializes into a local that is NOT_OWNED and destroys it, which
-//     is silent and correct.
-//   - Because ownership does not cross that queue, a buffer leaked by the component on the far side of an async hop
-//     is not caught unless that component claims it on arrival.
+// Item 4 has a counterpart that is not a blocker but a consequence worth expecting. Async dispatch on the far side
+// deserializes into a local Fw::Buffer -- now an owner -- passes it to the handler by reference, and destroys it.
+// A handler that neither moves the buffer on nor returns it will therefore assert. That is the leak this setting
+// exists to find, but it means handlers written to forward a buffer by reference need revisiting before a system
+// runs clean.
 #ifndef FW_BUFFER_STRICT_OWNERSHIP
 #define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when an owned buffer is destroyed
 #endif

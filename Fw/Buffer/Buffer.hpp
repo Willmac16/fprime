@@ -75,8 +75,17 @@ class Buffer : public Fw::Serializable {
     using SizeType = FwSizeType;
 
     enum {
-        SERIALIZED_SIZE = 3 * sizeof(SizeType) + sizeof(U32) + sizeof(U8*),  //!< Size of Fw::Buffer when serialized
-        NO_CONTEXT = 0xFFFFFFFF                                              //!< Value representing no context
+        //! Size of Fw::Buffer when serialized
+        //!
+        //! Under FW_BUFFER_STRICT_OWNERSHIP this carries one extra byte for the ownership state, so that handing a
+        //! buffer to an async port -- which serializes it into a queue rather than taking it -- transfers
+        //! responsibility along with the descriptor. There is no such cost when the setting is off.
+        SERIALIZED_SIZE = 3 * sizeof(SizeType) + sizeof(U32) + sizeof(U8*)
+#if FW_BUFFER_STRICT_OWNERSHIP
+                          + sizeof(U8)
+#endif
+            ,
+        NO_CONTEXT = 0xFFFFFFFF  //!< Value representing no context
     };
 
     //! Construct a buffer with no context nor data

@@ -112,7 +112,7 @@ buffer referring to a given allocation should be `OWNED`, and that one is answer
 | `Fw::BufferOwner::releaseBuffer()` | Marks the buffer `NOT_OWNED`, leaving the data pointer, offset, size, capacity, and context alone. States that the allocation has been disposed of, not that it has been freed. |
 | move | Carries the state to the destination; the source is emptied and left `NOT_OWNED`. |
 | copy / `alias()` | Result is always `NOT_OWNED`. Another reference is not another owner. |
-| deserialization | Result is `NOT_OWNED`. Ownership is a local property and is not carried on the wire. |
+| serialization | Carries the state, so a buffer queued for an async port arrives owned on the far side. |
 
 ##### Only the manager may grant or revoke it
 
@@ -164,12 +164,43 @@ return allocated;
 Fw::Buffer record = allocated.alias();
 ```
 
+##### Sync port calls retain ownership; async port calls transfer it
+
+The two kinds of port call are not the same, and the difference is the point.
+
+A **sync** call passes `Fw::Buffer` by reference — it is the same object on both sides. The caller keeps ownership by
+default, and a callee that means to keep the buffer moves out of the reference it was given, which empties the
+caller's:
+
+```c++
+void MyComponent::bufferIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) {
+    this->m_held = Fw::move(fwBuffer);  // the caller is no longer an owner, and no longer has a buffer
+}
+```
+
+An **async** call serializes the buffer into a message queue rather than passing it, so it has to transfer ownership:
+the sender gives the buffer up and the far side becomes answerable for it. That is why the ownership state is
+serialized alongside the rest of the descriptor — it is the extra byte in `SERIALIZED_SIZE` — and why a buffer
+arrives at async dispatch already owned. Generated dispatch then deserializes into a local, hands it to the handler,
+and destroys it, so a handler that neither moves the buffer on nor returns it is reported rather than quietly losing
+the allocation.
+
+The sending half of that is not in place yet: see item 4 below.
+
 ##### Status
 
 The setting is off by default. Every hand-written translation unit in F´ — flight code and unit tests alike —
-compiles with it enabled; what does not is code emitted by `fpp-to-cpp`, which copy-assigns `Fw::Buffer` in generated
-test harnesses, in serializable types with an `Fw.Buffer` member, and when constructing `Fw::DpContainer`. That list,
-and the two runtime caveats around async port hops, are documented against the macro in `config/FpConfig.h`.
+compiles with it enabled; what does not is code emitted by `fpp-to-cpp`:
+
+1. Generated test harnesses copy-assign `Fw::Buffer` into port-history entries.
+2. Generated serializable types with an `Fw.Buffer` member copy it in their copy constructor and assignment operator.
+3. Generated component code constructs `Fw::DpContainer` from an lvalue `Fw::Buffer`.
+4. Generated async `invoke()` serializes the caller's buffer into the queue and leaves it untouched, so the caller is
+   still an owner when its buffer goes out of scope. It needs to take the buffer by rvalue reference, or reset it
+   once serialized. Nothing in F´ can stand in for this: a component cannot give a buffer up on its own, by design.
+
+The full list, with what the autocoder would have to emit instead, is documented against the macro in
+`config/FpConfig.h`.
 
 `Fw::Buffer`'s behavior under the setting is covered by `Fw_Buffer_strict_ownership_ut_exe`, a separate test
 executable compiled with the macro on, which is always built and run.

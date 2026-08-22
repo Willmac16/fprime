@@ -206,8 +206,9 @@ TEST(StrictOwnership, ReWrappingOwnedBufferAsserts) {
         "");
 }
 
-// Ownership is a local property: it does not travel over the wire
-TEST(StrictOwnership, DeserializedBufferIsNotAnOwner) {
+// Ownership travels with the descriptor, so that an async port call -- which serializes a buffer into a queue
+// rather than taking it -- delivers responsibility to the far side along with the data.
+TEST(StrictOwnership, SerializationCarriesOwnership) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
     g_owner.claimBuffer(source);
 
@@ -218,9 +219,47 @@ TEST(StrictOwnership, DeserializedBufferIsNotAnOwner) {
     Fw::Buffer received;
     ASSERT_EQ(serialized.deserializeTo(received), Fw::FW_SERIALIZE_OK);
     ASSERT_EQ(received.getOriginalData(), g_data);
-    ASSERT_EQ(received.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
+    ASSERT_EQ(received.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
+
+    // Serializing does not itself give the source up -- an async port call has to do that -- so both are owners here
+    ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
 
     g_owner.releaseBuffer(source);
+    g_owner.releaseBuffer(received);
+}
+
+// A buffer that was only ever a reference stays one across the wire
+TEST(StrictOwnership, SerializationOfUnownedBufferStaysUnowned) {
+    Fw::Buffer source(g_data, sizeof(g_data), 1234);
+
+    U8 wire[Fw::Buffer::SERIALIZED_SIZE];
+    Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
+    ASSERT_EQ(serialized.serializeFrom(source), Fw::FW_SERIALIZE_OK);
+
+    Fw::Buffer received;
+    ASSERT_EQ(serialized.deserializeTo(received), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(received.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
+    // Neither is destroyed with a claim outstanding
+}
+
+// Dropping a buffer that arrived owned is a leak, and is caught. This is the async-hop case: generated dispatch
+// deserializes into a local, hands it to the handler, and destroys it -- so a handler that neither moves the buffer
+// on nor returns it is reported here rather than silently losing the allocation.
+TEST(StrictOwnership, DroppingADeserializedOwnedBufferAsserts) {
+    U8 wire[Fw::Buffer::SERIALIZED_SIZE];
+    Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
+    {
+        Fw::Buffer source(g_data, sizeof(g_data), 1234);
+        g_owner.claimBuffer(source);
+        ASSERT_EQ(serialized.serializeFrom(source), Fw::FW_SERIALIZE_OK);
+        g_owner.releaseBuffer(source);
+    }
+    ASSERT_DEATH_IF_SUPPORTED(
+        {
+            Fw::Buffer received;
+            (void)serialized.deserializeTo(received);
+        },
+        "");
 }
 
 int main(int argc, char** argv) {
