@@ -159,6 +159,12 @@ extern "C" {
 // So: a move carries ownership to the destination, and a copy or Fw::Buffer::alias() produces a further reference
 // that is never an owner.
 //
+// Taking a buffer back empties the handle rather than only clearing its claim, so a component that hands a buffer
+// back and then reaches through its own handle finds nothing rather than memory that now belongs to someone else.
+// That emptying is unconditional -- it applies with this setting off as well. It does not cover an alias taken
+// before the buffer went back, which is a separate object that nothing empties; closing that would need a reference
+// count, and a count cannot survive being serialized into a message queue.
+//
 // Granting and revoking ownership is restricted to the component answerable for the memory. Fw::Buffer's claim and
 // release are private, reachable only through the Fw::BufferOwner mixin that a buffer manager derives from. Were
 // they public, releasing a buffer would be the obvious way to quiet an assertion, and quieting that assertion is

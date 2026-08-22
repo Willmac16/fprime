@@ -13,7 +13,9 @@
 
 namespace Svc {
 
-class ComAggregator final : public ComAggregatorComponentBase {
+//! \brief Derives from Fw::BufferOwner because it is answerable for its own frame storage: it lends that storage
+//! \brief out on dataOut and takes it back on dataReturnIn, and no other component can change its ownership state.
+class ComAggregator final : public ComAggregatorComponentBase, public Fw::BufferOwner {
     friend class ComAggregatorTester;  // Allow unit test access to private members
   public:
     // ----------------------------------------------------------------------

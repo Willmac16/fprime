@@ -153,7 +153,9 @@ void Buffer::claim() {
 }
 
 void Buffer::release() {
-    this->m_ownership = OwnershipState::NOT_OWNED;
+    // Empty the handle rather than only clearing the claim: on the sync path this is the caller's own buffer, and
+    // leaving it pointing at memory that has gone back into the pool is the use-after-free this prevents
+    this->reset();
 }
 
 Buffer::OwnershipState Buffer::getOwnershipState() const {

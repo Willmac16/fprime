@@ -69,18 +69,35 @@ TEST(StrictOwnership, DestroyingOwnedBufferAsserts) {
         "");
 }
 
-// release() is how an owner states the allocation has been disposed of
-TEST(StrictOwnership, ReleaseMakesOwnedBufferSafeToDestroy) {
+// Taking a buffer back empties the handle the caller was holding: this is the use-after-free guard on the return
+// path. A sync port call passes the same Fw::Buffer object on both sides, so a component that hands a buffer back
+// and then reaches through its own handle finds nothing rather than memory that now belongs to someone else.
+TEST(StrictOwnership, ReleaseEmptiesTheHandle) {
     Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
     g_owner.claimBuffer(buffer);
     ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
+
     g_owner.releaseBuffer(buffer);
+
     ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-    // release() gives up the claim without disturbing what the buffer refers to
-    ASSERT_EQ(buffer.getOriginalData(), g_data);
-    ASSERT_EQ(buffer.getSize(), sizeof(g_data));
-    ASSERT_EQ(buffer.getContext(), 1234);
+    ASSERT_FALSE(buffer.isValid());
+    ASSERT_EQ(buffer.getOriginalData(), nullptr);
+    ASSERT_EQ(buffer.getData(), nullptr);
+    ASSERT_EQ(buffer.getSize(), 0);
+    ASSERT_EQ(buffer.getCapacity(), 0);
+    ASSERT_EQ(buffer.getContext(), Fw::Buffer::NO_CONTEXT);
     // Destruction at end of scope must not assert
+}
+
+// The serialization view follows the handle, so a reader built after the buffer went back reaches nothing either
+TEST(StrictOwnership, ReleasedBufferYieldsNoSerializer) {
+    Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
+    g_owner.claimBuffer(buffer);
+    g_owner.releaseBuffer(buffer);
+
+    auto serializer = buffer.getSerializer();
+    ASSERT_EQ(serializer.getBuffAddr(), nullptr);
+    ASSERT_EQ(serializer.getCapacity(), 0);
 }
 
 // An alias is another reference, not another owner. This is what keeps the destructor check meaningful: if aliases

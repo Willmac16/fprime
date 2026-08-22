@@ -327,10 +327,10 @@ class Buffer : public Fw::Serializable {
     //! It is invalid to claim a buffer that refers to no data.
     void claim();
 
-    //! Give up this buffer's claim on the memory it wraps
+    //! Give up this buffer's claim and empty the handle
     //!
-    //! Reachable only through Fw::BufferOwner. Marks the buffer NOT_OWNED, leaving everything else -- data pointer,
-    //! offset, size, capacity, context -- untouched; the memory itself is not freed.
+    //! Reachable only through Fw::BufferOwner. Resets the buffer to the default-constructed state; the memory itself
+    //! is not freed.
     void release();
 
     //! Reset this buffer to the default-constructed state, giving up any claim, without touching the wrapped memory
@@ -390,10 +390,17 @@ class BufferOwner {
     //! \param buffer: buffer being handed out
     void claimBuffer(Buffer& buffer) const;
 
-    //! Give up `buffer`'s claim on its allocation, marking it NOT_OWNED
+    //! Take `buffer` back, leaving the handle referring to nothing
     //!
-    //! Leaves the data pointer, offset, size, capacity, and context alone; the memory is not freed. Calling this on
-    //! a buffer that was never claimed is a no-op.
+    //! Resets `buffer` to the default-constructed state: null data pointer, zero offset, size and capacity,
+    //! NO_CONTEXT, and NOT_OWNED. The memory itself is not freed -- that is the manager's business -- but the handle
+    //! the caller was holding no longer reaches it.
+    //!
+    //! Emptying the handle rather than only clearing its claim is what makes a use-after-free on the return path
+    //! impossible rather than merely detectable. A sync port call passes the same Fw::Buffer object on both sides,
+    //! so a component that hands a buffer back and then reaches through its own handle finds nothing there instead
+    //! of memory that now belongs to someone else. See the note on aliases in Fw/Buffer/docs/sdd.md for the case
+    //! this does not cover.
     //!
     //! \param buffer: buffer being taken back
     void releaseBuffer(Buffer& buffer) const;

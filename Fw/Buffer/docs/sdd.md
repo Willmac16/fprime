@@ -187,6 +187,28 @@ the allocation.
 
 The sending half of that is not in place yet: see item 4 below.
 
+##### Use after free
+
+Taking a buffer back does not merely clear its claim, it empties the handle. `Fw::BufferOwner::releaseBuffer()`
+resets the buffer to the default-constructed state, so a component that hands a buffer back and then reaches through
+its own handle finds nothing there rather than memory that has gone back into the pool and may already belong to
+someone else:
+
+```c++
+this->deallocate_out(0, buffer);   // the manager takes it back and empties this handle
+buffer.getData();                  // nullptr, not a dangling pointer into the pool
+```
+
+This works because a sync port call passes the same `Fw::Buffer` object on both sides. It holds in the default
+configuration too — the emptying is not conditional on `FW_BUFFER_STRICT_OWNERSHIP`.
+
+What it does not cover is an **alias taken before the buffer went back**. An alias is a separate object, so nothing
+empties it, and it still points into the pool. Closing that would need a reference count, and a count cannot survive
+being serialized into a message queue on an async hop — nor is shared mutable state in a value type that passes
+through every port in the system a trade worth making. This is the reason `alias()` is spelled out rather than
+implicit: the places that hold a second reference are the places to look when a buffer is reused underneath one, and
+they are greppable.
+
 ##### Status
 
 The setting is off by default. Every hand-written translation unit in F´ — flight code and unit tests alike —

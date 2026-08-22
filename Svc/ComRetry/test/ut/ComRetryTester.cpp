@@ -26,7 +26,14 @@ void ComRetryTester ::configure(U32 num_retries = 1) {
 
 void ComRetryTester ::receiveBuffer(Fw::Buffer& buffer, ComCfg::FrameContext& context) {
     invoke_to_dataIn(0, buffer, context);
-    invoke_to_dataReturnIn(0, buffer, context);
+    // ComRetry takes the buffer handed back on dataReturnIn, so stand in for a downstream that keeps its own handle
+    // and hands over one of its own rather than the test's
+    this->returnBuffer(buffer, context);
+}
+
+void ComRetryTester ::returnBuffer(const Fw::Buffer& buffer, ComCfg::FrameContext& context) {
+    Fw::Buffer returning = buffer.alias();
+    invoke_to_dataReturnIn(0, returning, context);
 }
 
 void ComRetryTester ::checkDataOut(FwIndexType expectedIndex, U8* expectedData, FwSizeType expectedDataSize) {
@@ -87,7 +94,7 @@ void ComRetryTester ::testBufferRetry() {
     invoke_to_comStatusIn(0, state);  // First delivery is a failure
     state = Fw::Success::SUCCESS;
     invoke_to_comStatusIn(0, state);  // Downstream component is ready to receive buffer
-    invoke_to_dataReturnIn(0, buffer_a, nullContext);
+    this->returnBuffer(buffer_a, nullContext);
     invoke_to_comStatusIn(0, state);  // Redelivery is successful
 
     ASSERT_from_dataReturnOut(0, buffer_a, nullContext);
@@ -120,7 +127,7 @@ void ComRetryTester ::testBufferRetryTillFailure() {
 
     for (FwIndexType i = 1; i <= num_retries; i++) {
         invoke_to_comStatusIn(0, success);
-        invoke_to_dataReturnIn(0, buffer_a, nullContext);
+        this->returnBuffer(buffer_a, nullContext);
         invoke_to_comStatusIn(0, failure);
         checkDataOut(i, buffer_a.getData(), buffer_a.getSize());
     }
