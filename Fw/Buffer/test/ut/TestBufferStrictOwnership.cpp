@@ -14,11 +14,21 @@
 static_assert(FW_BUFFER_STRICT_OWNERSHIP,
               "This test executable is only meaningful with FW_BUFFER_STRICT_OWNERSHIP enabled");
 
-// The whole point of strict ownership: a buffer can be handed on, but never duplicated
+// An owning handle can be handed on, but never duplicated
 static_assert(not std::is_copy_constructible<Fw::Buffer>::value, "Fw::Buffer must not be copy constructible");
 static_assert(not std::is_copy_assignable<Fw::Buffer>::value, "Fw::Buffer must not be copy assignable");
 static_assert(std::is_move_constructible<Fw::Buffer>::value, "Fw::Buffer must be move constructible");
 static_assert(std::is_move_assignable<Fw::Buffer>::value, "Fw::Buffer must be move assignable");
+
+// A view carries no responsibility, so duplicating one costs nothing and means nothing
+static_assert(std::is_copy_constructible<Fw::BufferView>::value, "Fw::BufferView must be copy constructible");
+static_assert(std::is_copy_assignable<Fw::BufferView>::value, "Fw::BufferView must be copy assignable");
+
+// The two are distinct types: a view cannot stand in for a buffer anywhere one is wanted
+static_assert(not std::is_convertible<Fw::BufferView, Fw::Buffer>::value,
+              "Fw::BufferView must not convert to Fw::Buffer");
+static_assert(not std::is_assignable<Fw::Buffer&, Fw::BufferView>::value,
+              "Fw::BufferView must not be assignable to Fw::Buffer");
 
 namespace {
 
@@ -27,11 +37,11 @@ U8 g_data[64];
 
 //! Stands in for the component answerable for g_data
 //!
-//! Ownership transitions are reachable only through Fw::BufferOwner, so the tests reach them the same way production
-//! code has to: by being the manager.
+//! Creating and reclaiming owning handles is reachable only through Fw::BufferOwner, so the tests go through it the
+//! same way production code has to: by being the manager.
 class TestBufferOwner final : public Fw::BufferOwner {
   public:
-    using Fw::BufferOwner::claimBuffer;
+    using Fw::BufferOwner::allocateBuffer;
     using Fw::BufferOwner::releaseBuffer;
 };
 
@@ -39,47 +49,54 @@ TestBufferOwner g_owner;
 
 }  // namespace
 
-// Only a Fw::BufferOwner can grant or revoke ownership: a component handed a buffer cannot quietly disclaim it
-static_assert(not std::is_base_of<Fw::BufferOwner, Fw::Buffer>::value,
-              "Fw::Buffer must not be able to change its own ownership state");
-
-// A buffer that never claimed anything is safe to destroy
-TEST(StrictOwnership, DefaultConstructedBufferIsSafeToDestroy) {
+// A buffer that holds nothing is safe to destroy
+TEST(StrictOwnership, EmptyBufferIsSafeToDestroy) {
     Fw::Buffer buffer;
     ASSERT_FALSE(buffer.isValid());
-    ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
     // Destruction at end of scope must not assert
 }
 
-// Referring to memory is not the same as being answerable for it: an unclaimed buffer destroys silently
-TEST(StrictOwnership, UnclaimedBufferHoldingDataIsSafeToDestroy) {
-    Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    ASSERT_TRUE(buffer.isValid());
-    ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
+// Dropping an owning handle is the leak this configuration exists to catch
+TEST(StrictOwnership, DestroyingHeldBufferAsserts) {
+    ASSERT_DEATH_IF_SUPPORTED({ Fw::Buffer buffer = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234); }, "");
+}
+
+// A view carries no responsibility, so dropping one is not a leak however much memory it refers to. This is what
+// makes the destructor check worth having: it never fires on a reference, so it never has to be silenced.
+TEST(StrictOwnership, DroppingAViewIsSilent) {
+    Fw::BufferView view(g_data, sizeof(g_data), 1234);
+    ASSERT_TRUE(view.isValid());
     // Destruction at end of scope must not assert
 }
 
-// Dropping a buffer that was answerable for its allocation is the leak this configuration exists to catch
-TEST(StrictOwnership, DestroyingOwnedBufferAsserts) {
-    ASSERT_DEATH_IF_SUPPORTED(
-        {
-            Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-            g_owner.claimBuffer(buffer);
-        },
-        "");
+// A view of an owned buffer is likewise free to come and go
+TEST(StrictOwnership, ViewOfOwnedBufferIsSilent) {
+    Fw::Buffer owner = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
+    {
+        Fw::BufferView record = owner.alias();
+        ASSERT_EQ(record.getOriginalData(), g_data);
+        ASSERT_TRUE(owner == record);
+        // record is destroyed here and must not assert
+    }
+    ASSERT_TRUE(owner.isValid());
+    g_owner.releaseBuffer(owner);
 }
 
-// Taking a buffer back empties the handle the caller was holding: this is the use-after-free guard on the return
-// path. A sync port call passes the same Fw::Buffer object on both sides, so a component that hands a buffer back
-// and then reaches through its own handle finds nothing rather than memory that now belongs to someone else.
+// Views copy freely: a second reference is not a second owner, and there is no state to get wrong
+TEST(StrictOwnership, ViewsCopyFreely) {
+    Fw::BufferView first(g_data, sizeof(g_data), 1234);
+    Fw::BufferView second = first;
+    Fw::BufferView third;
+    third = second;
+    ASSERT_TRUE(first == second);
+    ASSERT_TRUE(second == third);
+}
+
+// Taking a buffer back empties the handle the caller was holding: the use-after-free guard on the return path
 TEST(StrictOwnership, ReleaseEmptiesTheHandle) {
-    Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(buffer);
-    ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-
+    Fw::Buffer buffer = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     g_owner.releaseBuffer(buffer);
 
-    ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
     ASSERT_FALSE(buffer.isValid());
     ASSERT_EQ(buffer.getOriginalData(), nullptr);
     ASSERT_EQ(buffer.getData(), nullptr);
@@ -89,10 +106,9 @@ TEST(StrictOwnership, ReleaseEmptiesTheHandle) {
     // Destruction at end of scope must not assert
 }
 
-// The serialization view follows the handle, so a reader built after the buffer went back reaches nothing either
+// The serialization view follows the handle, so a reader built after the buffer went back reaches nothing
 TEST(StrictOwnership, ReleasedBufferYieldsNoSerializer) {
-    Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(buffer);
+    Fw::Buffer buffer = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     g_owner.releaseBuffer(buffer);
 
     auto serializer = buffer.getSerializer();
@@ -100,108 +116,98 @@ TEST(StrictOwnership, ReleasedBufferYieldsNoSerializer) {
     ASSERT_EQ(serializer.getCapacity(), 0);
 }
 
-// An alias is another reference, not another owner. This is what keeps the destructor check meaningful: if aliases
-// had to be released too, release() would be a blanket silencer rather than a statement about disposal.
-TEST(StrictOwnership, AliasOfOwnedBufferIsNotAnOwner) {
-    Fw::Buffer owner(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(owner);
-    {
-        Fw::Buffer record = owner.alias();
-        ASSERT_EQ(record.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-        ASSERT_EQ(record.getOriginalData(), g_data);
-        // record is destroyed here, unreleased, and must not assert
-    }
-    // The owner is untouched by the alias coming and going
-    ASSERT_EQ(owner.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-    g_owner.releaseBuffer(owner);
-}
-
-// Moving hands the claim over along with the data
-TEST(StrictOwnership, MoveConstructionTransfersOwnership) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(source);
+// Moving hands responsibility over along with the data
+TEST(StrictOwnership, MoveTransfersResponsibility) {
+    Fw::Buffer source = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     Fw::Buffer destination(Fw::move(source));
 
-    ASSERT_EQ(destination.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
+    ASSERT_TRUE(destination.isValid());
     ASSERT_EQ(destination.getOriginalData(), g_data);
-    ASSERT_EQ(destination.getContext(), 1234);
-    ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
     ASSERT_FALSE(source.isValid());
 
     g_owner.releaseBuffer(destination);
-    // Source is destroyed at end of scope having given up both the data and the claim
+    // Source is destroyed at end of scope having given the allocation up
 }
 
-TEST(StrictOwnership, MoveAssignmentTransfersOwnership) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(source);
+TEST(StrictOwnership, MoveAssignmentTransfersResponsibility) {
+    Fw::Buffer source = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     Fw::Buffer destination;
     destination = Fw::move(source);
 
-    ASSERT_EQ(destination.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-    ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
+    ASSERT_TRUE(destination.isValid());
     ASSERT_FALSE(source.isValid());
 
     g_owner.releaseBuffer(destination);
 }
 
-// Moving an unclaimed buffer does not conjure ownership out of nothing
-TEST(StrictOwnership, MovingUnclaimedBufferStaysUnowned) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    Fw::Buffer destination(Fw::move(source));
-    ASSERT_EQ(destination.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-    ASSERT_TRUE(destination.isValid());
-    // Neither is destroyed with a claim outstanding
-}
-
-// A moved-from buffer is emptied and disclaimed, not poisoned: it can take hold of memory again
+// A moved-from buffer is emptied, not poisoned: its manager can hand it an allocation again
 TEST(StrictOwnership, MovedFromBufferIsReusable) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(source);
+    Fw::Buffer source = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     Fw::Buffer destination(Fw::move(source));
 
-    source.set(g_data, 8, 5678);
+    source = g_owner.allocateBuffer(g_data, 8, 5678);
     ASSERT_TRUE(source.isValid());
     ASSERT_EQ(source.getSize(), 8);
-    ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
 
+    g_owner.releaseBuffer(source);
     g_owner.releaseBuffer(destination);
 }
 
-// Self-move must not strip the buffer of its claim
-TEST(StrictOwnership, SelfMoveAssignmentKeepsTheClaim) {
-    Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(buffer);
+// Self-move must not empty the buffer out from under its only owner
+TEST(StrictOwnership, SelfMoveAssignmentKeepsTheBuffer) {
+    Fw::Buffer buffer = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     // Assign through an alias so this is a genuine self-move rather than a directly diagnosable one
     Fw::Buffer* self = &buffer;
     buffer = Fw::move(*self);
 
     ASSERT_TRUE(buffer.isValid());
     ASSERT_EQ(buffer.getOriginalData(), g_data);
-    ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
 
     g_owner.releaseBuffer(buffer);
 }
 
-// Handing a buffer down a chain of owners leaves exactly one of them answerable for it
+// Handing a buffer down a chain leaves exactly one holder answerable for it
 TEST(StrictOwnership, ChainedMovesLeaveOneOwner) {
-    Fw::Buffer first(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(first);
+    Fw::Buffer first = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     Fw::Buffer second(Fw::move(first));
     Fw::Buffer third;
     third = Fw::move(second);
 
-    ASSERT_EQ(first.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-    ASSERT_EQ(second.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-    ASSERT_EQ(third.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-    ASSERT_EQ(third.getOriginalData(), g_data);
+    ASSERT_FALSE(first.isValid());
+    ASSERT_FALSE(second.isValid());
+    ASSERT_TRUE(third.isValid());
 
     g_owner.releaseBuffer(third);
 }
 
-// Moving preserves the offset/size/capacity bookkeeping that identifies the original allocation
+// Re-pointing a buffer that still holds an allocation would drop it
+TEST(StrictOwnership, ReWrappingHeldBufferAsserts) {
+    ASSERT_DEATH_IF_SUPPORTED(
+        {
+            Fw::Buffer buffer = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
+            buffer.set(g_data, 8, 5678);
+        },
+        "");
+}
+
+// A view keeps the offset and capacity bookkeeping that identifies the original allocation
+TEST(StrictOwnership, ViewPreservesOffsetAndCapacity) {
+    Fw::Buffer buffer = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
+    buffer.advance(7);
+
+    Fw::BufferView view = buffer.alias();
+    ASSERT_EQ(view.getOriginalData(), g_data);
+    ASSERT_EQ(view.getData(), g_data + 7);
+    ASSERT_EQ(view.getOffset(), 7);
+    ASSERT_EQ(view.getSize(), sizeof(g_data) - 7);
+    ASSERT_EQ(view.getCapacity(), sizeof(g_data));
+
+    g_owner.releaseBuffer(buffer);
+}
+
+// Moving preserves that bookkeeping too
 TEST(StrictOwnership, MovePreservesOffsetAndCapacity) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
+    Fw::Buffer source = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
     source.advance(7);
 
     Fw::Buffer destination(Fw::move(source));
@@ -210,64 +216,36 @@ TEST(StrictOwnership, MovePreservesOffsetAndCapacity) {
     ASSERT_EQ(destination.getOffset(), 7);
     ASSERT_EQ(destination.getSize(), sizeof(g_data) - 7);
     ASSERT_EQ(destination.getCapacity(), sizeof(g_data));
+
+    g_owner.releaseBuffer(destination);
 }
 
-// Pointing an owning buffer at different memory would drop the allocation it is answerable for
-TEST(StrictOwnership, ReWrappingOwnedBufferAsserts) {
-    ASSERT_DEATH_IF_SUPPORTED(
-        {
-            Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-            g_owner.claimBuffer(buffer);
-            buffer.set(g_data, 8, 5678);
-        },
-        "");
-}
-
-// Ownership travels with the descriptor, so that an async port call -- which serializes a buffer into a queue
-// rather than taking it -- delivers responsibility to the far side along with the data.
-TEST(StrictOwnership, SerializationCarriesOwnership) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(source);
-
-    U8 wire[Fw::Buffer::SERIALIZED_SIZE];
-    Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
-    ASSERT_EQ(serialized.serializeFrom(source), Fw::FW_SERIALIZE_OK);
-
-    Fw::Buffer received;
-    ASSERT_EQ(serialized.deserializeTo(received), Fw::FW_SERIALIZE_OK);
-    ASSERT_EQ(received.getOriginalData(), g_data);
-    ASSERT_EQ(received.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-
-    // Serializing does not itself give the source up -- an async port call has to do that -- so both are owners here
-    ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-
-    g_owner.releaseBuffer(source);
-    g_owner.releaseBuffer(received);
-}
-
-// A buffer that was only ever a reference stays one across the wire
-TEST(StrictOwnership, SerializationOfUnownedBufferStaysUnowned) {
-    Fw::Buffer source(g_data, sizeof(g_data), 1234);
-
-    U8 wire[Fw::Buffer::SERIALIZED_SIZE];
-    Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
-    ASSERT_EQ(serialized.serializeFrom(source), Fw::FW_SERIALIZE_OK);
-
-    Fw::Buffer received;
-    ASSERT_EQ(serialized.deserializeTo(received), Fw::FW_SERIALIZE_OK);
-    ASSERT_EQ(received.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-    // Neither is destroyed with a claim outstanding
-}
-
-// Dropping a buffer that arrived owned is a leak, and is caught. This is the async-hop case: generated dispatch
-// deserializes into a local, hands it to the handler, and destroys it -- so a handler that neither moves the buffer
-// on nor returns it is reported here rather than silently losing the allocation.
-TEST(StrictOwnership, DroppingADeserializedOwnedBufferAsserts) {
+// Serialization carries the descriptor only. An async port call serializes a buffer into a queue rather than taking
+// it, so the far side reconstitutes a handle that is answerable for the allocation just as this one was.
+TEST(StrictOwnership, DeserializedBufferIsAnOwningHandle) {
     U8 wire[Fw::Buffer::SERIALIZED_SIZE];
     Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
     {
-        Fw::Buffer source(g_data, sizeof(g_data), 1234);
-        g_owner.claimBuffer(source);
+        Fw::Buffer source = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
+        ASSERT_EQ(serialized.serializeFrom(source), Fw::FW_SERIALIZE_OK);
+        g_owner.releaseBuffer(source);
+    }
+    Fw::Buffer received;
+    ASSERT_EQ(serialized.deserializeTo(received), Fw::FW_SERIALIZE_OK);
+    ASSERT_EQ(received.getOriginalData(), g_data);
+    ASSERT_TRUE(received.isValid());
+
+    g_owner.releaseBuffer(received);
+}
+
+// Dropping a buffer that arrived over the wire is a leak, and is caught. This is the async-hop case: generated
+// dispatch deserializes into a local, hands it to the handler, and destroys it -- so a handler that neither moves
+// the buffer on nor returns it is reported rather than silently losing the allocation.
+TEST(StrictOwnership, DroppingADeserializedBufferAsserts) {
+    U8 wire[Fw::Buffer::SERIALIZED_SIZE];
+    Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
+    {
+        Fw::Buffer source = g_owner.allocateBuffer(g_data, sizeof(g_data), 1234);
         ASSERT_EQ(serialized.serializeFrom(source), Fw::FW_SERIALIZE_OK);
         g_owner.releaseBuffer(source);
     }

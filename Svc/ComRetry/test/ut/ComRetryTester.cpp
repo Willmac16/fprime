@@ -32,7 +32,9 @@ void ComRetryTester ::receiveBuffer(Fw::Buffer& buffer, ComCfg::FrameContext& co
 }
 
 void ComRetryTester ::returnBuffer(const Fw::Buffer& buffer, ComCfg::FrameContext& context) {
-    Fw::Buffer returning = buffer.alias();
+    // ComRetry takes the buffer handed back on dataReturnIn, so hand it one of its own the way a downstream
+    // component would. The tester stands in for the component that allocated the memory.
+    Fw::Buffer returning = this->allocateBuffer(buffer.getData(), buffer.getSize(), buffer.getContext());
     invoke_to_dataReturnIn(0, returning, context);
 }
 

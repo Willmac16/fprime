@@ -50,8 +50,8 @@ void BufferManagerComponentImpl ::cleanup() {
     if (not this->m_cleaned) {
         // walk through Fw::Buffer instances and delete them
         for (U16 entry = 0; entry < this->m_numStructs; entry++) {
-            // The bin's record is bookkeeping rather than an outstanding allocation, so it was never claimed
-            this->m_buffers[entry].buff.~Buffer();
+            // The bin's record is a view, so destroying it releases nothing and can never report a leak
+            this->m_buffers[entry].buff.~BufferView();
         }
         this->m_cleaned = true;
         // release memory
@@ -114,14 +114,12 @@ Fw::Buffer BufferManagerComponentImpl ::bufferGetCallee_handler(const FwIndexTyp
             if (this->m_currBuffs > this->m_highWater) {
                 this->m_highWater = this->m_currBuffs;
             }
-            // Hand out a fresh buffer over the bin's allocation rather than a copy of the bin's own record:
-            // the manager keeps its record, the caller gets the only buffer referring to that memory.
-            const Fw::Buffer& binBuffer = this->m_buffers[buff].buff;
-            Fw::Buffer allocated(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
+            // The manager keeps its record of the bin as a view; the caller gets the owning handle
+            const Fw::BufferView& binBuffer = this->m_buffers[buff].buff;
+            Fw::Buffer allocated =
+                this->allocateBuffer(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
             // change size to match request
             allocated.setSize(size);
-            // The caller is answerable for this allocation until it comes back through bufferSendIn
-            this->claimBuffer(allocated);
             return allocated;
         }
     }
@@ -187,7 +185,7 @@ void BufferManagerComponentImpl::setup(U16 mgrId,                    //!< manage
                 // because we know where the Fw::Buffer instance is
                 U32 context = (static_cast<U32>(this->m_mgrId) << 16) | static_cast<U32>(currStruct);
                 (void)new (&this->m_buffers[currStruct].buff)
-                    Fw::Buffer(bufferMem, this->m_bufferBins.bins[bin].bufferSize, context);
+                    Fw::BufferView(bufferMem, this->m_bufferBins.bins[bin].bufferSize, context);
                 this->m_buffers[currStruct].allocated = false;
                 this->m_buffers[currStruct].memory = bufferMem;
                 this->m_buffers[currStruct].size = this->m_bufferBins.bins[bin].bufferSize;

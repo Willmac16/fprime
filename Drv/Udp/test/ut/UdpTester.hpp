@@ -22,7 +22,7 @@
 
 namespace Drv {
 
-class UdpTester : public UdpGTestBase {
+class UdpTester : public UdpGTestBase, public Fw::BufferOwner {
     // Maximum size of histories storing events, telemetry, and port outputs
     static const FwSizeType MAX_HISTORY_SIZE = 1000;
     // Instance ID supplied to the component instance under test
@@ -122,7 +122,7 @@ class UdpTester : public UdpGTestBase {
     Fw::Buffer m_data_buffer;
     //! Protects m_data_buffer, which is shared with the receive thread's handler
     Os::Mutex m_buffer_lock;
-    Fw::Buffer m_data_buffer2;
+    Fw::BufferView m_data_buffer2;
     U8 m_data_storage[SEND_DATA_BUFFER_SIZE];
     std::atomic<bool> m_spinner;
 };

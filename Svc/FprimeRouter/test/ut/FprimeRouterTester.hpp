@@ -14,7 +14,7 @@
 
 namespace Svc {
 
-class FprimeRouterTester : public FprimeRouterGTestBase {
+class FprimeRouterTester : public FprimeRouterGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants

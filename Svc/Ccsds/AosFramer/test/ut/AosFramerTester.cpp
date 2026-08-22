@@ -62,7 +62,7 @@ void AosFramerTester ::testNominalFraming() {
 
     // Check that the dataOut handler was called with the correct data
     ASSERT_from_dataOut_SIZE(1);
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::BufferView outBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
     ComCfg::FrameContext outContext = this->fromPortHistory_dataOut->at(0).context;
     const FwSizeType expectedFrameSize = ComCfg::AosMaxFrameFixedSize;
     ASSERT_EQ(outBuffer.getSize(), expectedFrameSize);
@@ -114,7 +114,7 @@ void AosFramerTester ::testSeqCountWrapAround() {
         this->component.m_vcs[0].frame.state = Fw::Buffer::OwnershipState::OWNED;  // reset state to OWNED
         this->invoke_to_dataIn(0, buffer, defaultContext);
         ASSERT_from_dataOut_SIZE(iter + 1);
-        Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(iter).data.alias();
+        Fw::BufferView outBuffer = this->fromPortHistory_dataOut->at(iter).data.alias();
         U32 outVcCount = this->getFrameVcCount(outBuffer.getData());
         ASSERT_EQ(outVcCount, countWrapAround & 0x0FFFFFFF);
         countWrapAround++;
@@ -187,7 +187,7 @@ void AosFramerTester ::testLongPacket() {
 
     for (U8 frame = 0; frame < 3; frame++) {
         ASSERT_from_dataOut_SIZE(frame + 1);
-        Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(frame).data.alias();
+        Fw::BufferView outBuffer = this->fromPortHistory_dataOut->at(frame).data.alias();
         ComCfg::FrameContext outContext = this->fromPortHistory_dataOut->at(frame).context;
         ASSERT_EQ(outBuffer.getSize(), frameSize);
         ASSERT_EQ(this->fromPortHistory_dataOut->at(frame).context.get_vcId(), context.get_vcId());
@@ -274,7 +274,8 @@ void AosFramerTester ::testLongPacket() {
         }
 
         // Return this buffer so the framer can reset
-        this->invoke_to_dataReturnIn(0, outBuffer, outContext);
+        Fw::Buffer returning = this->allocateBuffer(outBuffer.getData(), outBuffer.getSize(), outBuffer.getContext());
+        this->invoke_to_dataReturnIn(0, returning, outContext);
     }
 
     // Make sure we don't send any extra frames (continue into null)
@@ -330,7 +331,7 @@ void AosFramerTester ::testShortPackets() {
     // How far into the payload (and what byte we should see there)
     U32 payloadInd = 0;
 
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::BufferView outBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
     ComCfg::FrameContext outContext = this->fromPortHistory_dataOut->at(0).context;
     ASSERT_EQ(outBuffer.getSize(), frameSize);
     ASSERT_EQ(this->fromPortHistory_dataOut->at(0).context.get_vcId(), context.get_vcId());
@@ -398,7 +399,8 @@ void AosFramerTester ::testShortPackets() {
     }
 
     // Return this buffer so the framer can reset
-    this->invoke_to_dataReturnIn(0, outBuffer, outContext);
+    Fw::Buffer returning = this->allocateBuffer(outBuffer.getData(), outBuffer.getSize(), outBuffer.getContext());
+    this->invoke_to_dataReturnIn(0, returning, outContext);
 
     // Make sure we don't send any extra frames (continue into null)
     ASSERT_from_dataOut_SIZE(1);

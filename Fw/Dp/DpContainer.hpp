@@ -23,7 +23,12 @@ class DpContainerTester;
 namespace Fw {
 
 //! A data product Container
-class DpContainer {
+//! \brief Data product container
+//!
+//! Derives from Fw::BufferOwner as a stand-in: `fpp-to-cpp` builds containers from an lvalue Fw::Buffer, so the
+//! container cannot be handed the buffer by move and has to mint its own owning handle over the same memory. Once
+//! the autocoder passes the buffer by move this base class, and the minting in setBuffer, both come out.
+class DpContainer : public Fw::BufferOwner {
     friend class Fw::DpContainerTester;
 
   public:

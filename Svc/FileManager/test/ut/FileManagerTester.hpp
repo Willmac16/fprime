@@ -18,7 +18,7 @@
 
 namespace Svc {
 
-class FileManagerTester : public FileManagerGTestBase {
+class FileManagerTester : public FileManagerGTestBase, public Fw::BufferOwner {
     // ----------------------------------------------------------------------
     // Construction and destruction
     // ----------------------------------------------------------------------

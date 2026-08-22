@@ -323,8 +323,8 @@ Fw::Buffer FrameAccumulatorTester ::from_bufferAllocate_handler(FwIndexType port
     }
     this->m_buffer.set(this->m_buffer_slot, size);
     ::memset(this->m_buffer.getData(), 0, size);
-    // The tester keeps m_buffer to check what it handed out, so this hands out an explicit alias
-    return this->m_buffer.alias();
+    // The tester keeps m_buffer as its own record of what it handed out; the caller gets the owning handle
+    return this->allocateBuffer(this->m_buffer.getData(), this->m_buffer.getSize(), this->m_buffer.getContext());
 }
 
 }  // namespace Svc

@@ -92,8 +92,8 @@ of a function returning `Fw::Buffer`.
 A moved-from buffer is reset, not poisoned: calling `set()` on it, or assigning another buffer to it, makes it usable
 again. Self-move-assignment is a no-op and leaves the buffer unchanged.
 
-Whether a buffer is answerable for the memory it wraps is tracked on the buffer itself, and only the component
-managing that memory can change it. See the next section.
+Whether a reference is answerable for the memory it refers to is decided by its *type*, not by any state on it: an
+`Fw::Buffer` is, an `Fw::BufferView` is not. See the next section.
 
 #### 2.1.3 Strict Ownership (`FW_BUFFER_STRICT_OWNERSHIP`)
 
@@ -101,76 +101,77 @@ By default a copy of an `Fw::Buffer` is perfectly legal, and so is letting a buf
 scope. Both are how buffer leaks and double-returns happen, and neither leaves any trace. The
 `FW_BUFFER_STRICT_OWNERSHIP` setting in `config/FpConfig.h` turns both into failures.
 
-##### Ownership is a property of the buffer, not of the data
+##### Ownership is the type
 
-`Fw::Buffer` carries an `OwnershipState`: a buffer is `NOT_OWNED` unless something calls `claim()` on it. At most one
-buffer referring to a given allocation should be `OWNED`, and that one is answerable for returning it.
+There is no ownership flag on `Fw::Buffer` and nothing to consult at runtime. **Holding an `Fw::Buffer` is holding
+responsibility for an allocation.** A reference that carries no such responsibility is an
+[`Fw::BufferView`](../Buffer.hpp), which is a different type.
 
-| Operation | Effect on ownership |
-|---|---|
-| `Fw::BufferOwner::claimBuffer()` | Marks the buffer `OWNED`. Whoever hands out an allocation calls it on what it hands out. |
-| `Fw::BufferOwner::releaseBuffer()` | Marks the buffer `NOT_OWNED`, leaving the data pointer, offset, size, capacity, and context alone. States that the allocation has been disposed of, not that it has been freed. |
-| move | Carries the state to the destination; the source is emptied and left `NOT_OWNED`. |
-| copy / `alias()` | Result is always `NOT_OWNED`. Another reference is not another owner. |
-| serialization | Carries the state, so a buffer queued for an async port arrives owned on the far side. |
-
-##### Only the manager may grant or revoke it
-
-`Fw::Buffer`'s claim and release are private. The only way to reach them is `Fw::BufferOwner`, a mixin that a
-component derives from to declare itself answerable for a pool of buffer memory:
-
-```c++
-class MyBufferPool final : public MyBufferPoolComponentBase, public Fw::BufferOwner { ... };
-```
-
-This is deliberate. If any component could release a buffer, releasing it would be the obvious way to quiet an
-assertion — and quieting that assertion is exactly what a leak looks like. Keeping both ends of ownership with the
-manager leaves a component holding a buffer it owns exactly one way to be rid of it: hand it to someone else. A
-component cannot mint ownership either, so it cannot declare itself the owner of memory it did not allocate.
-
-Deriving from `Fw::BufferOwner` does not make the transitions correct on its own — a manager can still release a
-buffer it never handed out — but it puts them somewhere they get reviewed, in the handful of components that manage
-memory rather than scattered across every component that touches a buffer.
-
-This is what makes the destructor check worth having. Keying it on whether the buffer refers to data instead would
-make an owner indistinguishable from an alias, so every alias would need silencing — and the silencing would hide
-real leaks just as effectively. Reference counting would answer the same question, but a count cannot survive being
-serialized into a message queue on an async port hop, and shared mutable state in a value type passed through every
-port in the system is not a trade F´ should make.
-
-##### What changes when the setting is on
-
-| | Default (`0`) | Strict (`1`) |
+| | `Fw::Buffer` | `Fw::BufferView` |
 |---|---|---|
-| `Fw::Buffer b = other;` | Compiles; both refer to the allocation | **Build error**: copy constructor is deleted |
-| `b = other;` | Compiles; both refer to the allocation | **Build error**: copy assignment is deleted |
-| `b = other.alias();` | Second reference, `NOT_OWNED` | Same |
-| `b = Fw::move(other);` | Transfers data and ownership; `other` left empty | Same |
-| Destroying an `OWNED` buffer | Silent | **Assertion failure** |
-| Destroying a `NOT_OWNED` buffer | Silent | Silent, however much data it refers to |
-| `set()` on an `OWNED` buffer | Silent | **Assertion failure**: it would drop the allocation |
+| What it means | You must return this allocation | You are looking at memory someone else is answerable for |
+| Copyable | No — move-only under strict ownership | Yes, freely |
+| Destroying it | **Asserts** if it still refers to an allocation | Always silent |
+| Where it comes from | `Fw::BufferOwner::allocateBuffer()`, or a move | `Fw::Buffer::alias()`, or constructed over any memory |
+| Can be sent on a port | Yes | No — a view is not the thing that has to come back |
 
-`Fw::BufferOwner`, `alias()`, and `getOwnershipState()` are available in both configurations, so components can be
-written once and built either way. `Svc::BufferManager` already derives from `Fw::BufferOwner`: it claims the buffer
-it returns from `bufferGetCallee`, and releases the one handed back on `bufferSendIn`.
+That split is what lets the compiler do the checking. A view cannot be moved into a member that wants a buffer,
+cannot be handed to a port that carries one, and cannot be mistaken for the thing that has to be returned. The
+destructor check needs no flag, because a reference that is not an owner is not an `Fw::Buffer` in the first place —
+so the check never fires on a reference and never has to be silenced.
+
+A view does not keep memory alive and does not know when it goes away. It refers to whatever the buffer it came from
+referred to, for as long as that allocation lasts. Using one after the allocation has gone back to its manager is the
+same mistake as using a raw pointer after a free, and the type does not prevent it. What it does is make every place
+that holds such a reference visible in the source.
+
+##### Only the manager creates and reclaims
+
+`Fw::Buffer` has no way to give an allocation up, and the way to produce one is `Fw::BufferOwner`, a mixin a
+component derives from to declare itself answerable for a pool of memory:
 
 ```c++
-// Hand out an allocation (inside a Fw::BufferOwner)
-Fw::Buffer allocated(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
-this->claimBuffer(allocated);   // the caller is answerable for this until it comes back
-return allocated;
-
-// Record what was handed out without becoming a second owner (anywhere)
-Fw::Buffer record = allocated.alias();
+class MyBufferPool final : public MyBufferPoolComponentBase, public Fw::BufferOwner {
+    Fw::Buffer allocate(FwSizeType size) {
+        return this->allocateBuffer(this->m_storage, size);  // the caller is answerable from here
+    }
+    void handBack(Fw::Buffer& buffer) {
+        this->releaseBuffer(buffer);  // back in the pool, and the caller's handle is emptied
+    }
+};
 ```
+
+There is no separate act of claiming: an `Fw::Buffer` *is* the claim, so producing one is how a manager says the
+recipient is now answerable. Reclaiming is genuinely restricted — `Fw::Buffer::release()` is private and reachable
+only through `Fw::BufferOwner` — because if any component could give a buffer up, doing so would be the obvious way
+to quiet an assertion, and quieting that assertion is exactly what a leak looks like. A component holding a buffer
+has one way to be rid of it: hand it to someone else.
+
+Creation is not yet restricted the same way. `Fw::Buffer`'s memory-taking constructor is still public, so
+`allocateBuffer()` is at present a statement of intent rather than a gate. Making it private is the remaining step,
+and it is a large one: 351 sites across the tree construct a buffer over memory, and each has to be reclassified as
+an owner minting a handle or — far more often — as a view. The destructor check already catches the cases that
+matter, since a handle minted outside a manager still has to be disposed of, so this tightening can follow the
+migration rather than lead it.
+
+##### Use after free
+
+`releaseBuffer()` empties the handle rather than merely marking it. A sync port call passes the same `Fw::Buffer`
+object on both sides, so a component that hands a buffer back and then reaches through its own handle finds nothing:
+
+```c++
+this->deallocate_out(0, buffer);   // the manager takes it back and empties this handle
+buffer.getData();                  // nullptr, not a dangling pointer into the pool
+```
+
+This is unconditional — it applies with `FW_BUFFER_STRICT_OWNERSHIP` off as well. It does not cover a view taken
+before the buffer went back; closing that would need a reference count, and a count cannot survive being serialized
+into a message queue on an async hop.
 
 ##### Sync port calls retain ownership; async port calls transfer it
 
-The two kinds of port call are not the same, and the difference is the point.
-
-A **sync** call passes `Fw::Buffer` by reference — it is the same object on both sides. The caller keeps ownership by
-default, and a callee that means to keep the buffer moves out of the reference it was given, which empties the
-caller's:
+A **sync** call passes `Fw::Buffer` by reference — the same object on both sides. The caller keeps ownership, and a
+callee that means to keep the buffer moves out of the reference it was given, which empties the caller's:
 
 ```c++
 void MyComponent::bufferIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) {
@@ -178,51 +179,27 @@ void MyComponent::bufferIn_handler(FwIndexType portNum, Fw::Buffer& fwBuffer) {
 }
 ```
 
-An **async** call serializes the buffer into a message queue rather than passing it, so it has to transfer ownership:
-the sender gives the buffer up and the far side becomes answerable for it. That is why the ownership state is
-serialized alongside the rest of the descriptor — it is the extra byte in `SERIALIZED_SIZE` — and why a buffer
-arrives at async dispatch already owned. Generated dispatch then deserializes into a local, hands it to the handler,
-and destroys it, so a handler that neither moves the buffer on nor returns it is reported rather than quietly losing
-the allocation.
-
-The sending half of that is not in place yet: see item 4 below.
-
-##### Use after free
-
-Taking a buffer back does not merely clear its claim, it empties the handle. `Fw::BufferOwner::releaseBuffer()`
-resets the buffer to the default-constructed state, so a component that hands a buffer back and then reaches through
-its own handle finds nothing there rather than memory that has gone back into the pool and may already belong to
-someone else:
-
-```c++
-this->deallocate_out(0, buffer);   // the manager takes it back and empties this handle
-buffer.getData();                  // nullptr, not a dangling pointer into the pool
-```
-
-This works because a sync port call passes the same `Fw::Buffer` object on both sides. It holds in the default
-configuration too — the emptying is not conditional on `FW_BUFFER_STRICT_OWNERSHIP`.
-
-What it does not cover is an **alias taken before the buffer went back**. An alias is a separate object, so nothing
-empties it, and it still points into the pool. Closing that would need a reference count, and a count cannot survive
-being serialized into a message queue on an async hop — nor is shared mutable state in a value type that passes
-through every port in the system a trade worth making. This is the reason `alias()` is spelled out rather than
-implicit: the places that hold a second reference are the places to look when a buffer is reused underneath one, and
-they are greppable.
+An **async** call serializes the buffer into a message queue rather than passing it, so it must transfer ownership.
+Generated dispatch deserializes into a local `Fw::Buffer` — an owning handle — hands it to the handler, and destroys
+it, so a handler that neither moves the buffer on nor returns it is reported rather than quietly losing the
+allocation. The sending half of that is not in place yet: see item 4 below.
 
 ##### Status
 
 The setting is off by default. Every hand-written translation unit in F´ — flight code and unit tests alike —
 compiles with it enabled; what does not is code emitted by `fpp-to-cpp`:
 
-1. Generated test harnesses copy-assign `Fw::Buffer` into port-history entries.
+1. Generated test harnesses copy-assign `Fw::Buffer` into port-history entries. Those entries want `Fw::BufferView`.
 2. Generated serializable types with an `Fw.Buffer` member copy it in their copy constructor and assignment operator.
-3. Generated component code constructs `Fw::DpContainer` from an lvalue `Fw::Buffer`.
+3. Generated component code constructs `Fw::DpContainer` from an lvalue `Fw::Buffer`, so the container has to mint a
+   second owning handle over the same memory. `Fw::DpContainer` and `Svc::DpManager` derive from `Fw::BufferOwner`
+   only to stand in for this, and both should stop once the buffer is passed by move.
 4. Generated async `invoke()` serializes the caller's buffer into the queue and leaves it untouched, so the caller is
    still an owner when its buffer goes out of scope. It needs to take the buffer by rvalue reference, or reset it
    once serialized. Nothing in F´ can stand in for this: a component cannot give a buffer up on its own, by design.
 
-The full list, with what the autocoder would have to emit instead, is documented against the macro in
-`config/FpConfig.h`.
+On the F´ side, the remaining step is the one described above: reclassify the 351 construction sites and then make
+`Fw::Buffer`'s memory-taking constructor private.
 
 `Fw::Buffer`'s behavior under the setting is covered by `Fw_Buffer_strict_ownership_ut_exe`, a separate test
 executable compiled with the macro on, which is always built and run.

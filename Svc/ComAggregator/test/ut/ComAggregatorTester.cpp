@@ -285,7 +285,7 @@ void ComAggregatorTester ::test_hold_while_waiting() {
               Svc::ComAggregatorComponentBase::MsgDispatchStatus::MSG_DISPATCH_OK);  // Dispatch the state machine
     ASSERT_from_dataOut_SIZE(1);
     this->validate_aggregation(this->fromPortHistory_dataOut->at(0).data);
-    Fw::Buffer major_buffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::BufferView major_buffer = this->fromPortHistory_dataOut->at(0).data.alias();
 
     // Invoke some number of failures
     for (U32 i = 0; i < STest::Pick::lowerUpper(1, 5); i++) {
@@ -300,8 +300,10 @@ void ComAggregatorTester ::test_hold_while_waiting() {
     // Force a hold
     Fw::Buffer minor_buffer = this->test_fill(true);
 
-    // Const cast is safe as data is not altered
-    this->invoke_to_dataReturnIn(0, major_buffer, context);
+    // Hand the aggregator an owning handle back, the way the downstream component would
+    Fw::Buffer returning =
+        this->allocateBuffer(major_buffer.getData(), major_buffer.getSize(), major_buffer.getContext());
+    this->invoke_to_dataReturnIn(0, returning, context);
     Fw::Success good = Fw::Success::SUCCESS;
     this->invoke_to_comStatusIn(0, good);
     this->m_aggregation.clear();

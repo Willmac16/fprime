@@ -15,7 +15,7 @@ namespace Svc {
 
 namespace Ccsds {
 
-class AosFramerTester final : public AosFramerGTestBase {
+class AosFramerTester final : public AosFramerGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants

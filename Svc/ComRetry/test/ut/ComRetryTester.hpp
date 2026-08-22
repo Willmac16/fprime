@@ -16,7 +16,7 @@
 
 namespace Svc {
 
-class ComRetryTester final : public ComRetryGTestBase {
+class ComRetryTester final : public ComRetryGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants

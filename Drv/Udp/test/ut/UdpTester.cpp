@@ -203,7 +203,7 @@ void UdpTester ::from_recv_handler(const FwIndexType portNum,
 Fw::Buffer UdpTester ::from_allocate_handler(const FwIndexType portNum, FwSizeType size) {
     this->pushFromPortEntry_allocate(size);
     Fw::Buffer buffer(new U8[size], size);
-    // The tester records what it handed out; the caller keeps the buffer itself
+    // The tester records what it handed out; the caller keeps the owning handle
     m_data_buffer2 = buffer.alias();
     return buffer;
 }

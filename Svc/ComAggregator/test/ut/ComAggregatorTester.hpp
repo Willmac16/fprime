@@ -13,7 +13,7 @@
 
 namespace Svc {
 
-class ComAggregatorTester final : public ComAggregatorGTestBase {
+class ComAggregatorTester final : public ComAggregatorGTestBase, public Fw::BufferOwner {
   public:
     // ----------------------------------------------------------------------
     // Constants

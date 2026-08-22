@@ -21,7 +21,7 @@
 
 namespace Svc {
 
-class GenericHubTester : public GenericHubGTestBase {
+class GenericHubTester : public GenericHubGTestBase, public Fw::BufferOwner {
     // ----------------------------------------------------------------------
     // Construction and destruction
     // ----------------------------------------------------------------------

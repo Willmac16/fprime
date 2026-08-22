@@ -26,6 +26,7 @@
 namespace Fw {
 class BufferTester;
 class BufferOwner;
+class BufferView;
 }  // namespace Fw
 
 namespace Fw {
@@ -59,15 +60,13 @@ class Buffer : public Fw::Serializable {
   public:
     //! Buffer ownership state
     //!
-    //! Records whether this particular Fw::Buffer is the one responsible for returning the memory it wraps. Several
-    //! Fw::Buffer objects may refer to the same allocation -- see `alias()` -- but at most one of them should be
-    //! OWNED, and that one is answerable for the allocation.
-    //!
-    //! A buffer is NOT_OWNED unless `claim()` says otherwise. Moving a buffer carries the state to the destination;
-    //! copying or aliasing one does not, because the result is another reference, not another owner.
+    //! Ownership of an allocation is not a runtime property of Fw::Buffer -- holding an Fw::Buffer *is* ownership,
+    //! and a non-owning reference is an Fw::BufferView instead. This enumeration remains as shared vocabulary for
+    //! components that track whether storage of their own is currently lent out, which is a fact about the component
+    //! rather than about any one buffer.
     enum class OwnershipState {
-        NOT_OWNED,  //!< The buffer is currently not owned
-        OWNED,      //!< The buffer is currently owned
+        NOT_OWNED,  //!< The storage is currently not owned
+        OWNED,      //!< The storage is currently owned
     };
 
   public:
@@ -76,15 +75,7 @@ class Buffer : public Fw::Serializable {
 
     enum {
         //! Size of Fw::Buffer when serialized
-        //!
-        //! Under FW_BUFFER_STRICT_OWNERSHIP this carries one extra byte for the ownership state, so that handing a
-        //! buffer to an async port -- which serializes it into a queue rather than taking it -- transfers
-        //! responsibility along with the descriptor. There is no such cost when the setting is off.
-        SERIALIZED_SIZE = 3 * sizeof(SizeType) + sizeof(U32) + sizeof(U8*)
-#if FW_BUFFER_STRICT_OWNERSHIP
-                          + sizeof(U8)
-#endif
-            ,
+        SERIALIZED_SIZE = 3 * sizeof(SizeType) + sizeof(U32) + sizeof(U8*),
         NO_CONTEXT = 0xFFFFFFFF  //!< Value representing no context
     };
 
@@ -97,8 +88,8 @@ class Buffer : public Fw::Serializable {
 #if FW_BUFFER_STRICT_OWNERSHIP
     //! Copy construction is disabled: a buffer may only be handed on by moving it
     //!
-    //! See FW_BUFFER_STRICT_OWNERSHIP in FpConfig.h. Take a `const Buffer&` to inspect a buffer without claiming it,
-    //! `Fw::move` to hand it on, and `alias()` where a second reference is genuinely wanted.
+    //! See FW_BUFFER_STRICT_OWNERSHIP in FpConfig.h. Take a `const Buffer&` to inspect a buffer, `Fw::move` to hand
+    //! it on, and `alias()` for an Fw::BufferView where a second, non-owning reference is genuinely wanted.
     Buffer(const Buffer& src) = delete;
 #else
     //! Construct a buffer by copying members from a reference to another buffer. Does not copy wrapped data.
@@ -153,14 +144,12 @@ class Buffer : public Fw::Serializable {
 
     //! Destroy this buffer
     //!
-    //! When FW_BUFFER_STRICT_OWNERSHIP is enabled, destroying an OWNED buffer is a programming error and asserts:
-    //! this buffer was answerable for its allocation and was neither moved on to another owner nor released, so the
-    //! allocation has been dropped on the floor. Destroying a NOT_OWNED buffer is silent however much data it refers
-    //! to, because a buffer that never claimed responsibility has nothing to drop.
+    //! When FW_BUFFER_STRICT_OWNERSHIP is enabled, destroying a buffer that still refers to an allocation is a
+    //! programming error and asserts: holding an Fw::Buffer is holding responsibility for that allocation, and this
+    //! one was neither moved on to another owner nor handed back to its manager.
     //!
-    //! That distinction is what keeps the check meaningful. A check keyed on the data pointer instead could not tell
-    //! an owner apart from an alias, so every alias would have to be silenced -- and the silencing would hide real
-    //! leaks just as effectively.
+    //! There is no ownership flag to consult, because there is nothing to consult it about. A reference that is not
+    //! responsible for an allocation is an Fw::BufferView, which is a different type and destroys silently.
     //!
     //! When FW_BUFFER_STRICT_OWNERSHIP is disabled this destructor does nothing.
     ~Buffer();
@@ -173,6 +162,11 @@ class Buffer : public Fw::Serializable {
     //! \param src: buffer to test against
     //! \return: true if equivalent, false otherwise
     bool operator==(const Buffer& src) const;
+
+    //! Equality operator against a view, true when both refer to the same memory in the same way
+    //! \param src: view to test against
+    //! \return: true if equivalent, false otherwise
+    bool operator==(const BufferView& src) const;
 
     // ----------------------------------------------------------------------
     // Serialization functions
@@ -288,24 +282,15 @@ class Buffer : public Fw::Serializable {
     //! \param context: user-specified context to track creation. Default: no context
     void set(U8* data, FwSizeType size, U32 context = NO_CONTEXT);
 
-    //! Return whether this buffer is answerable for the memory it wraps
-    //! \return OWNED if this buffer has claimed the allocation, NOT_OWNED otherwise
-    OwnershipState getOwnershipState() const;
-
-    //! Construct a second buffer over the same wrapped data, deliberately
+    //! Construct a non-owning view of the memory this buffer refers to
     //!
-    //! Strict ownership forbids implicit copies so that handing a buffer on is always visible in the source. It does
-    //! not forbid two objects referring to the same allocation where that is genuinely what is wanted -- a manager
-    //! keeping a record of what it handed out, a test recording what it observed, a wrapper aliasing a buffer it was
-    //! given by reference. `alias()` is that operation, spelled out so it can be found and reviewed.
+    //! Where a second reference to one allocation is genuinely wanted -- a manager keeping a record of what it handed
+    //! out, a test recording what it observed, a sub-range of a packet being parsed -- that reference is an
+    //! Fw::BufferView. It carries the same descriptor and reaches the same memory, but it is a different type, so it
+    //! cannot be mistaken for the buffer nor handed on as though it were.
     //!
-    //! The returned buffer refers to the same memory with the same original pointer, offset, size, capacity, and
-    //! context, but it is always NOT_OWNED: an alias is another reference, not another owner. Responsibility for the
-    //! allocation stays exactly where it was, and destroying the alias is silent even under
-    //! FW_BUFFER_STRICT_OWNERSHIP.
-    //!
-    //! \return a non-owning buffer referring to the same wrapped data as this one
-    Buffer alias() const;
+    //! \return a view of the same memory this buffer refers to
+    BufferView alias() const;
 
 #if FW_SERIALIZABLE_TO_STRING || BUILD_UT
     //! Supports writing this buffer to a string representation
@@ -319,14 +304,6 @@ class Buffer : public Fw::Serializable {
 #endif
 
   private:
-    //! Declare this buffer answerable for the memory it wraps
-    //!
-    //! Reachable only through Fw::BufferOwner: granting ownership is the business of whoever hands out the
-    //! allocation, not of the code being handed one.
-    //!
-    //! It is invalid to claim a buffer that refers to no data.
-    void claim();
-
     //! Give up this buffer's claim and empty the handle
     //!
     //! Reachable only through Fw::BufferOwner. Resets the buffer to the default-constructed state; the memory itself
@@ -344,13 +321,110 @@ class Buffer : public Fw::Serializable {
     FwSizeType m_size;                             //<! size - The data size in bytes
     FwSizeType m_capacity;                         //<! capacity - Size of the original allocation in bytes
     U32 m_context;                                 //!< Creation context for disposal
-    OwnershipState m_ownership;                    //!< Whether this buffer is answerable for the wrapped memory
 };
+//! A non-owning reference to memory an Fw::Buffer refers to
+//!
+//! Fw::Buffer is the owning handle: holding one means being answerable for returning the allocation, which is why it
+//! is move-only and why dropping one is an error. Plenty of code has no such responsibility and only needs to look at
+//! the memory, or at part of it -- a component parsing a sub-range out of a packet it was handed, a manager keeping a
+//! record of what it lent out, a test recording what it observed. That is what this type is for.
+//!
+//! Making the distinction a type rather than a flag on Fw::Buffer is what lets the ownership rules be checked by the
+//! compiler instead of at runtime. A view cannot be moved into a member that wants a buffer, cannot be handed to a
+//! port that carries one, and cannot be mistaken for the thing that has to be returned. Nothing has to ask a buffer
+//! whether it is really an owner, because a reference that is not one has a different type.
+//!
+//! A view does not keep the memory alive and does not know when it goes away. It refers to whatever the buffer it was
+//! taken from referred to, for as long as that allocation lasts; using one after the allocation has gone back to its
+//! manager is the same mistake as using a raw pointer after a free, and this type does not prevent it. What it does
+//! is make every place that holds such a reference visible in the source.
+class BufferView final {
+  public:
+    //! Construct a view referring to nothing
+    BufferView();
+
+    //! Construct a view of the given memory
+    //!
+    //! \param data: pointer to the memory being viewed
+    //! \param size: size of the memory being viewed
+    //! \param context: user-specified context, carried for identification. Default: no context
+    BufferView(U8* data, FwSizeType size, U32 context = Buffer::NO_CONTEXT);
+
+    //! Views are freely copyable: copying a reference creates no new responsibility
+    BufferView(const BufferView& src) = default;
+
+    //! Views are freely copyable: copying a reference creates no new responsibility
+    BufferView& operator=(const BufferView& src) = default;
+
+    //! Destroy a view. Always silent: a view was never answerable for anything.
+    ~BufferView() = default;
+
+    //! Equality operator returning true when views refer to the same memory in the same way
+    //! \param src: view to test against
+    //! \return true if equivalent, false otherwise
+    bool operator==(const BufferView& src) const;
+
+    //! Equality operator against an owning buffer, true when both refer to the same memory in the same way
+    //! \param src: buffer to test against
+    //! \return: true if equivalent, false otherwise
+    bool operator==(const Buffer& src) const;
+
+    //! Returns true if the view refers to data (pointer != nullptr and size > 0)
+    bool isValid() const;
+
+    //! Returns pointer to the current data (original pointer plus offset)
+    U8* getData() const;
+
+    //! Returns the original pointer, regardless of any advance/setSize adjustments
+    U8* getOriginalData() const;
+
+    //! Returns size of the viewed data
+    FwSizeType getSize() const;
+
+    //! Returns the capacity (size of the original region)
+    FwSizeType getCapacity() const;
+
+    //! Returns the current offset from the original pointer
+    FwSizeType getOffset() const;
+
+    //! Returns the context carried from the buffer this view was taken from
+    U32 getContext() const;
+
+    //! Moves the offset forward (positive) or backward (negative) by the given amount
+    //!
+    //! Narrows the view without losing the original pointer, exactly as Fw::Buffer::advance does. Asserts if the
+    //! resulting offset is outside [0, capacity] or the resulting size would be negative.
+    //!
+    //! \param amount: signed number of bytes to move the offset by
+    void advance(FwSignedSizeType amount);
+
+    //! Sets size of the viewed data
+    //!
+    //! Asserts unless offset + size <= capacity.
+    //! \param size: new size of the viewed region
+    void setSize(FwSizeType size);
+
+    //! Returns a serializer over the viewed data
+    //! \return representation of the viewed data to aid in serializing to it
+    ExternalSerializeBufferWithMemberCopy getSerializer() const;
+
+    //! Returns a deserializer over the viewed data
+    //! \return representation of the viewed data to aid in deserializing from it
+    ExternalSerializeBufferWithMemberCopy getDeserializer() const;
+
+  private:
+    U8* m_bufferData;       //!< Pointer to the original region
+    FwSizeType m_offset;    //!< Offset of the viewed data within the region
+    FwSizeType m_size;      //!< Size of the viewed data in bytes
+    FwSizeType m_capacity;  //!< Size of the original region in bytes
+    U32 m_context;          //!< Context carried from the buffer this view was taken from
+};
+
 //! Base class for the component answerable for a pool of Fw::Buffer memory
 //!
 //! An Fw::Buffer's ownership state may only be changed by the component that hands the allocation out and takes it
 //! back -- a buffer manager, a static memory pool, a driver managing its own storage. Deriving from this class is how
-//! a component declares itself to be that, and it is the only way to reach Fw::Buffer's claim and release.
+//! a component declares itself to be that, and it is the only way to create an owning buffer or take one back.
 //!
 //! Everyone else disposes of a buffer by moving it on, and that restriction is what makes the leak check under
 //! FW_BUFFER_STRICT_OWNERSHIP worth having. If any component could release a buffer, releasing it would be the
@@ -364,9 +438,7 @@ class Buffer : public Fw::Serializable {
 //! ```c++
 //! class MyBufferPool final : public MyBufferPoolComponentBase, public Fw::BufferOwner {
 //!     Fw::Buffer allocate(FwSizeType size) {
-//!         Fw::Buffer buffer(this->m_storage, size);
-//!         this->claimBuffer(buffer);  // the caller is answerable for it from here
-//!         return buffer;
+//!         return this->allocateBuffer(this->m_storage, size);  // the caller is answerable for it
 //!     }
 //!     void handBack(Fw::Buffer& buffer) {
 //!         this->releaseBuffer(buffer);  // back in the pool, nobody is answerable for it
@@ -383,12 +455,16 @@ class BufferOwner {
     //! Not virtual: Fw::BufferOwner is a mixin declaring a capability, never deleted through a base pointer.
     ~BufferOwner() = default;
 
-    //! Declare `buffer` answerable for its allocation, marking it OWNED
+    //! Create the owning handle for an allocation this component is handing out
     //!
-    //! It is invalid to claim a buffer that refers to no data.
+    //! There is no separate act of claiming: an Fw::Buffer is the claim, so producing one is how a manager says the
+    //! recipient is now answerable for the memory. Whoever receives it must move it on or hand it back.
     //!
-    //! \param buffer: buffer being handed out
-    void claimBuffer(Buffer& buffer) const;
+    //! \param data: pointer to the allocation being handed out
+    //! \param size: size of the allocation
+    //! \param context: user-specified context to track the allocation. Default: no context
+    //! \return an owning buffer over the allocation
+    Buffer allocateBuffer(U8* data, FwSizeType size, U32 context = Buffer::NO_CONTEXT) const;
 
     //! Take `buffer` back, leaving the handle referring to nothing
     //!

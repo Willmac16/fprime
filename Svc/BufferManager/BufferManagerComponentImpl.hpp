@@ -125,7 +125,7 @@ class BufferManagerComponentImpl final : public BufferManagerComponentBase, publ
     BufferBins m_bufferBins;  //!< copy of bins supplied by user
 
     struct AllocatedBuffer {
-        Fw::Buffer buff;            //!< Buffer class to give to user
+        Fw::BufferView buff;        //!< Record of the bin's memory; handing it out mints an owning buffer
         U8* memory;                 //!< pointer to memory buffer
         Fw::Buffer::SizeType size;  //!< size of the buffer
         bool allocated;             //!< this buffer has been allocated
