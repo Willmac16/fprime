@@ -47,7 +47,7 @@ void BufferRepeaterTester ::testRepeater() {
     for (FwIndexType i = 0; i < this->component.getNum_portOut_OutputPorts(); i++) {
         FwIndexType port_index = this->m_port_index_history.at(i);
         ASSERT_EQ(i, port_index);
-        Fw::Buffer buffer_under_test = this->fromPortHistory_portOut->at(i).fwBuffer;
+        const Fw::Buffer& buffer_under_test = this->fromPortHistory_portOut->at(i).fwBuffer;
         ASSERT_EQ(buffer_under_test.getSize(), m_initial_buffer.getSize());
         for (U32 j = 0; j < std::min(buffer_under_test.getSize(), m_initial_buffer.getSize()); j++) {
             ASSERT_EQ(buffer_under_test.getData()[j], m_initial_buffer.getData()[j])

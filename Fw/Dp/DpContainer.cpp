@@ -120,8 +120,9 @@ void DpContainer::serializeHeader() {
 }
 
 void DpContainer::setBuffer(const Buffer& buffer) {
-    // Set the buffer
-    this->m_buffer = buffer;
+    // Alias the caller's buffer rather than taking it: `fpp-to-cpp` builds containers from an lvalue Fw::Buffer, so
+    // this cannot take the buffer by move. Responsibility for the allocation stays with whoever passed it in.
+    this->m_buffer = buffer.alias();
     // Check that the buffer is large enough to hold a data product packet with
     // zero-size data
     const FwSizeType bufferSize = buffer.getSize();

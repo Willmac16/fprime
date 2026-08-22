@@ -11,6 +11,7 @@
 // ======================================================================
 
 #include "Accumulate.hpp"
+#include <utility>
 
 namespace Svc {
 
@@ -33,7 +34,7 @@ void BufferAccumulatorTester ::OK() {
     for (U32 i = 0; i < MAX_NUM_BUFFERS; ++i) {
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
         this->invoke_to_bufferSendInFill(0, buffers[i]);
         this->doDispatch();
         ASSERT_FROM_PORT_HISTORY_SIZE(0);

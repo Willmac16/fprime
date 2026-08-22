@@ -121,12 +121,22 @@ Fw::Buffer buffer = this->allocate_out(0, size);
 buffer.release();  // this scope is no longer responsible for the allocation
 ```
 
-The setting is off by default and, as of this writing, **turning it on does not produce a working build**. The
-blocking work is listed against the macro in `config/FpConfig.h`; the short version is that `fpp-to-cpp` emits
-`Fw::Buffer` copies in generated test harnesses and in serializable types with an `Fw.Buffer` member, and generated
-async port dispatch destroys a still-loaded buffer after calling the handler. F Prime's own non-generated flight code
-builds cleanly with the setting enabled, and `Fw::Buffer`'s behavior under it is covered by
-`Fw_Buffer_strict_ownership_ut_exe`, a separate test executable compiled with the macro on.
+Deliberately holding two references to one allocation is still possible under strict ownership -- a manager keeping a
+record of what it handed out, a test recording what it observed -- but it has to be written out with `alias()`. What
+the setting removes is *implicit* duplication, not aliasing:
+
+```c++
+Fw::Buffer record = handedOut.alias();  // deliberate, greppable, reviewable
+Fw::Buffer oops = handedOut;            // build error under strict ownership
+```
+
+The setting is off by default. Every hand-written translation unit in F Prime -- flight code and unit tests alike --
+compiles with it enabled; what does not is code emitted by `fpp-to-cpp`. Roughly forty generated translation units
+copy `Fw::Buffer`, and generated async port dispatch destroys a still-loaded buffer after calling the handler. The
+full list, and what the autocoder would have to emit instead, is documented against the macro in `config/FpConfig.h`.
+
+`Fw::Buffer`'s behavior under the setting is covered by `Fw_Buffer_strict_ownership_ut_exe`, a separate test
+executable compiled with the macro on, which is always built and run.
 
 ### 2.2 The Port Fw::BufferGet
 

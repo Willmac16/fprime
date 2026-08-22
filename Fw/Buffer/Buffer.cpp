@@ -123,6 +123,19 @@ bool Buffer::operator==(const Buffer& src) const {
            (this->m_size == src.m_size) && (this->m_capacity == src.m_capacity) && (this->m_context == src.m_context);
 }
 
+Buffer Buffer::alias() const {
+    Buffer aliased;
+    aliased.m_bufferData = this->m_bufferData;
+    aliased.m_offset = this->m_offset;
+    aliased.m_size = this->m_size;
+    aliased.m_capacity = this->m_capacity;
+    aliased.m_context = this->m_context;
+    if (aliased.m_bufferData != nullptr) {
+        aliased.m_serialize_repr.setExtBuffer(aliased.m_bufferData + aliased.m_offset, aliased.m_size);
+    }
+    return aliased;
+}
+
 void Buffer::release() {
     this->m_bufferData = nullptr;
     this->m_offset = 0;

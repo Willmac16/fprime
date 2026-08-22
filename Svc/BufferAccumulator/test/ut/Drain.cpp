@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include <cstring>
 
+#include <utility>
 #include "Fw/Types/MallocAllocator.hpp"
 
 namespace Svc {
@@ -35,7 +36,7 @@ void BufferAccumulatorTester ::OK() {
         ASSERT_from_bufferSendOutDrain_SIZE(i);
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
         this->invoke_to_bufferSendInFill(0, buffers[i]);
         this->doDispatch();
         ASSERT_from_bufferSendOutDrain_SIZE(i + 1);
@@ -81,7 +82,7 @@ void BufferAccumulatorTester ::PartialDrainOK() {
     for (U32 i = 0; i < MAX_NUM_BUFFERS; ++i) {
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
         this->invoke_to_bufferSendInFill(0, buffers[i]);
         this->doDispatch();
 
@@ -116,7 +117,7 @@ void BufferAccumulatorTester ::PartialDrainOK() {
     for (U32 i = 0; i < MAX_NUM_BUFFERS; ++i) {
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
         this->invoke_to_bufferSendInFill(0, buffers[i]);
         this->doDispatch();
         ASSERT_FROM_PORT_HISTORY_SIZE(0);
@@ -133,7 +134,7 @@ void BufferAccumulatorTester ::PartialDrainOK() {
 
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
 
         // check that one buffer drained
         ASSERT_from_bufferSendOutDrain_SIZE(i + 1);
@@ -156,7 +157,7 @@ void BufferAccumulatorTester ::PartialDrainOK() {
     for (U32 i = 0; i < MAX_NUM_BUFFERS; ++i) {
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
         this->invoke_to_bufferSendInFill(0, buffers[i]);
         this->doDispatch();
         ASSERT_FROM_PORT_HISTORY_SIZE(0);
@@ -175,7 +176,7 @@ void BufferAccumulatorTester ::PartialDrainOK() {
     for (U32 i = 0; i < MAX_NUM_BUFFERS; ++i) {
         const U32 bufferID = i;
         Fw::Buffer b(data, size, bufferID);
-        buffers[i] = b;
+        buffers[i] = std::move(b);
 
         if (i + 1 < MAX_NUM_BUFFERS) {
             ASSERT_EQ(i + 1, this->component.m_numDrained);

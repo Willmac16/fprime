@@ -375,7 +375,8 @@ Fw::Success::T FileManagerTester ::productGet_handler(FwDpIdType id, FwSizeType 
     const FwSizeType bufferSize =
         this->m_dpGetUndersizedBuffer ? Fw::DpContainer::MIN_PACKET_SIZE : sizeof this->m_dpContainerData;
     this->m_dpContainerBuffer = Fw::Buffer(this->m_dpContainerData, bufferSize);
-    buffer = this->m_dpContainerBuffer;
+    // The tester keeps its own record of the container buffer, so hand out an explicit alias
+    buffer = this->m_dpContainerBuffer.alias();
     return Fw::Success::SUCCESS;
 }
 

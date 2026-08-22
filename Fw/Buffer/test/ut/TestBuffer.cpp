@@ -40,8 +40,9 @@ class BufferTester {
         buffer_set.set(data, sizeof(data), 1234);
         ASSERT_EQ(buffer_set, buffer);
 
-        // Check constructors and assignments
-        Fw::Buffer buffer_new(buffer);
+        // Check constructors and assignments. alias() rather than a copy so this file also compiles under
+        // FW_BUFFER_STRICT_OWNERSHIP, where the copy operations are deleted; the semantics under test are the same.
+        Fw::Buffer buffer_new = buffer.alias();
         ASSERT_EQ(buffer_new.getData(), data);
         ASSERT_EQ(buffer_new.getSize(), sizeof(data));
         ASSERT_EQ(buffer_new.getContext(), 1234);
@@ -60,7 +61,7 @@ class BufferTester {
         ASSERT_NE(buffer_assignment2.getData(), data);
         ASSERT_NE(buffer_assignment2.getSize(), sizeof(data));
         ASSERT_NE(buffer_assignment2.getContext(), 1234);
-        buffer_assignment1 = buffer_assignment2 = buffer;
+        buffer_assignment1 = (buffer_assignment2 = buffer.alias()).alias();
         ASSERT_EQ(buffer_assignment1.getData(), data);
         ASSERT_EQ(buffer_assignment1.getSize(), sizeof(data));
         ASSERT_EQ(buffer_assignment1.getContext(), 1234);
@@ -68,7 +69,7 @@ class BufferTester {
         ASSERT_EQ(buffer_assignment2.getSize(), sizeof(data));
         ASSERT_EQ(buffer_assignment2.getContext(), 1234);
 
-        // Check modifying the copies does not destroy
+        // Check modifying the aliases does not destroy the original
         buffer_new.set(faux, 0);
         buffer_new.setContext(22222);
         buffer_assignment1.set(faux, 0);
@@ -110,8 +111,8 @@ class BufferTester {
         buffer.setSize(sizeof(data) - 25);
         ASSERT_EQ(buffer.getSize(), sizeof(data) - 25);
 
-        // Copies preserve offset and capacity
-        Fw::Buffer copy(buffer);
+        // Aliases preserve offset and capacity
+        Fw::Buffer copy = buffer.alias();
         ASSERT_EQ(copy.getOriginalData(), data);
         ASSERT_EQ(copy.getOffset(), 25);
         ASSERT_EQ(copy.getCapacity(), sizeof(data));

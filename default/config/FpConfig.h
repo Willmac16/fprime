@@ -145,30 +145,34 @@ extern "C" {
 
 // Enforce single-ownership semantics on Fw::Buffer.
 //
-// When enabled, Fw::Buffer becomes move-only -- its copy constructor and copy assignment operator are deleted, so the
-// only way to hand a buffer on is std::move -- and its destructor asserts unless the buffer has been emptied first,
-// either by being moved from or by an explicit Fw::Buffer::release(). Together these turn two silent buffer-ownership
-// mistakes into build errors and assertions: keeping a second reference to a buffer that was handed off, and dropping
-// a buffer without returning it to its manager.
+// When enabled, Fw::Buffer becomes move-only -- its copy constructor and copy assignment operator are deleted -- and
+// its destructor asserts unless the buffer was emptied first, either by being moved from or by an explicit
+// Fw::Buffer::release(). Together these turn two silent buffer-ownership mistakes into a build error and an
+// assertion: keeping a second reference to a buffer that was handed off, and dropping a buffer without returning it
+// to its manager.
 //
-// This is off by default, and turning it on today does not yield a working build. It is the switch for a migration
-// that is not finished. What still has to change first:
+// Deliberately holding two references to one allocation is still possible, but has to be written out: see
+// Fw::Buffer::alias(). Implicit duplication is what this setting removes, not aliasing itself.
 //
-//   1. `fpp-to-cpp` emits copies of Fw::Buffer that this repository cannot edit. Generated unit-test harnesses
-//      (`*TesterBase.cpp`, `*GTestBase.cpp`) copy port arguments into history entries; generated serializable types
-//      with an Fw.Buffer member (Svc::ComDataContextPair) copy in their constructors and assignment operators; and
-//      generated component code constructs Fw::DpContainer from an lvalue Fw::Buffer.
-//   2. Generated async port dispatch deserializes into a local Fw::Buffer, passes it to the handler by reference and
-//      then destroys it. Unless the handler moves out of its argument, that local is destroyed still holding the
-//      buffer and the destructor assertion trips, so buffers cannot cross an async port hop until the autocoder
-//      releases the dispatch local after the handler returns.
-//   3. Some generated handler signatures take `const Fw::Buffer&`, which cannot be forwarded to an output port
-//      without a copy (see Svc::DpManager::productSendIn_handler).
-//   4. Within F Prime itself, Fw::DpContainer and its users (Svc::DpWriter, Svc::DpCatalog, Svc::DpCompressProc,
-//      Svc::FileManager) and Svc::ComRetry still copy buffers and need an ownership decision of their own.
+// All of F Prime's own hand-written source -- flight code and unit tests alike -- compiles with this enabled. What
+// does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:
 //
-// The rest of F Prime's non-generated flight code builds cleanly with this enabled. Fw::Buffer's own behavior under
-// this setting is covered by Fw_Buffer_strict_ownership_ut_exe, which is always built and run.
+//   1. Unit-test harnesses (37 `*TesterBase.cpp`, 2 `*GTestBase.cpp`) copy-assign port arguments into history
+//      entries: `_e.fwBuffer = fwBuffer;`. These need `std::move(fwBuffer)` or an explicit alias.
+//   2. Serializable types with an Fw.Buffer member (Svc::ComDataContextPair) copy the member in their copy
+//      constructor and copy assignment operator.
+//   3. Component code builds Fw::DpContainer from an lvalue Fw::Buffer (`DpContainer(globalId, buffer, baseId)`),
+//      which forces Fw::DpContainer::setBuffer to alias rather than take the buffer.
+//   4. Async port dispatch deserializes into a local Fw::Buffer, passes it to the handler by reference, and then
+//      destroys it. Even once the above compile, that local is destroyed still holding the buffer and the destructor
+//      assertion trips, so buffers cannot cross an async port hop until dispatch releases the local after the
+//      handler returns.
+//   5. Some handler signatures take `const Fw::Buffer&`, which cannot be forwarded to an output port without an
+//      alias (see Svc::DpManager::productSendIn_handler).
+//
+// Items 1-3 are compile-time blockers; item 4 is a runtime one; item 5 is a wart that an alias works around today.
+// Fw::Buffer's own behavior under this setting is covered by Fw_Buffer_strict_ownership_ut_exe, which is always
+// built and run.
 #ifndef FW_BUFFER_STRICT_OWNERSHIP
 #define FW_BUFFER_STRICT_OWNERSHIP (0)  //!< Make Fw::Buffer move-only and assert when a non-empty buffer is destroyed
 #endif

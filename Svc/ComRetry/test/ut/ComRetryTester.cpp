@@ -30,7 +30,7 @@ void ComRetryTester ::receiveBuffer(Fw::Buffer& buffer, ComCfg::FrameContext& co
 }
 
 void ComRetryTester ::checkDataOut(FwIndexType expectedIndex, U8* expectedData, FwSizeType expectedDataSize) {
-    Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(expectedIndex).data;
+    const Fw::Buffer& emittedBuffer = this->fromPortHistory_dataOut->at(expectedIndex).data;
     ASSERT_EQ(expectedDataSize, emittedBuffer.getSize());
     for (FwSizeType i = 0; i < expectedDataSize; i++) {
         ASSERT_EQ(emittedBuffer.getData()[i], expectedData[i]);

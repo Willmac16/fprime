@@ -85,7 +85,8 @@ void ComRetry ::dataReturnIn_handler(FwIndexType portNum, Fw::Buffer& buffer, co
     FW_ASSERT(this->m_bufferState == Fw::Buffer::OwnershipState::NOT_OWNED);
     FW_ASSERT(this->m_retry_state == WAITING_FOR_STATUS);
     this->m_bufferState = Fw::Buffer::OwnershipState::OWNED;
-    this->m_buffer = buffer;
+    // Alias rather than take: the sender still holds this buffer after dataReturnIn, so it cannot be moved from
+    this->m_buffer = buffer.alias();
     this->m_context = context;
 }
 

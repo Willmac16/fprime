@@ -47,8 +47,9 @@ void DpManager::productSendIn_handler(const FwIndexType portNum, FwDpIdType id, 
     // Update state variables
     ++this->numDataProducts;
     this->numBytes += buffer.getSize();
-    // Send the buffer on productSendOut
-    Fw::Buffer sendBuffer = buffer;
+    // Send the buffer on productSendOut. The handler takes the buffer by const reference but the output port needs
+    // a mutable one, so this aliases rather than forwards. Remove once the autocoded handler signature allows it.
+    Fw::Buffer sendBuffer = buffer.alias();
     this->productSendOut_out(portNum, sendBuffer);
 }
 

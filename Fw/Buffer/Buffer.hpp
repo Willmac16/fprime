@@ -267,6 +267,20 @@ class Buffer : public Fw::Serializable {
     //! \param context: user-specified context to track creation. Default: no context
     void set(U8* data, FwSizeType size, U32 context = NO_CONTEXT);
 
+    //! Construct a second buffer over the same wrapped data, deliberately
+    //!
+    //! Strict ownership forbids implicit copies so that handing a buffer on is always visible in the source. It does
+    //! not forbid two objects referring to the same allocation where that is genuinely what is wanted -- a manager
+    //! keeping a record of what it handed out, a test recording what it observed, a wrapper aliasing a buffer it was
+    //! given by reference. `alias()` is that operation, spelled out so it can be found and reviewed.
+    //!
+    //! The returned buffer is indistinguishable from this one: same original pointer, offset, size, capacity, and
+    //! context. Nothing tracks which of the two is responsible for the memory; that remains the caller's problem.
+    //! Under FW_BUFFER_STRICT_OWNERSHIP both buffers must be moved from or released before they are destroyed.
+    //!
+    //! \return a buffer referring to the same wrapped data as this one
+    Buffer alias() const;
+
     //! Give up this buffer's claim on the wrapped data, resetting it to the default-constructed state
     //!
     //! Resets the data pointer, offset, size, and capacity to zero and the context to NO_CONTEXT. The wrapped memory

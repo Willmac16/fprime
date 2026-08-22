@@ -56,7 +56,7 @@ void TmFramerTester ::testNominalFraming() {
 
     // Check that the dataOut handler was called with the correct data
     ASSERT_from_dataOut_SIZE(1);
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data;
+    const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     ComCfg::FrameContext outContext = this->fromPortHistory_dataOut->at(0).context;
     const FwSizeType expectedFrameSize = ComCfg::TmFrameFixedSize;
     ASSERT_EQ(outBuffer.getSize(), expectedFrameSize);
@@ -107,7 +107,7 @@ void TmFramerTester ::testSeqCountWrapAround() {
         this->component.m_bufferState = TmFramer::BufferOwnershipState::OWNED;  // reset state to OWNED
         this->invoke_to_dataIn(0, buffer, defaultContext);
         ASSERT_from_dataOut_SIZE(iter + 1);
-        Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(iter).data;
+        const Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(iter).data;
         U8 outMcCount = this->getFrameMcCount(outBuffer.getData());
         U8 outVcCount = this->getFrameVcCount(outBuffer.getData());
         ASSERT_EQ(outMcCount, countWrapAround);

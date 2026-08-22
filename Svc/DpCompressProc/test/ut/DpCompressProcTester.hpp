@@ -36,7 +36,7 @@ class DpCompressProcTester : public DpCompressProcGTestBase {
     //! Destroy object DpCompressProcTester
     ~DpCompressProcTester();
 
-    void uncompress_data(Fw::Buffer container_buf, const FwSizeStoreType chunk_size, std::vector<U8>& out_vec);
+    void uncompress_data(const Fw::Buffer& container_buf, const FwSizeStoreType chunk_size, std::vector<U8>& out_vec);
 
     void test_chunks(const FwSizeStoreType chunk_size, std::vector<AbstractState::Chunk> chunks);
 
@@ -56,7 +56,7 @@ class DpCompressProcTester : public DpCompressProcGTestBase {
   private:
     void test_chunks_helper(const FwSizeStoreType chunk_size,
                             std::vector<AbstractState::Chunk> chunks,
-                            Fw::Buffer container_buf);
+                            Fw::Buffer& container_buf);
 
     // ----------------------------------------------------------------------
     // Helper functions

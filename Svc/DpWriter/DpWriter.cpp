@@ -163,8 +163,8 @@ Fw::Success::T DpWriter::deserializePacketHeader(Fw::Buffer& buffer, Fw::DpConta
 }
 
 void DpWriter::performProcessing(Fw::DpContainer& container) {
-    // Get the buffer
-    Fw::Buffer buffer = container.getBuffer();
+    // Get the buffer. The container keeps it; this is a reference into the container, not a second buffer.
+    Fw::Buffer& buffer = container.getBuffer();
     // Get the bit mask for the processing types
     const Fw::DpCfg::ProcType::SerialType procTypes = container.getProcTypes();
     // Do the processing
@@ -201,8 +201,8 @@ Fw::Success::T DpWriter::writeFile(const Fw::DpContainer& container,
                                    const Fw::FileNameString& fileName,
                                    FwSizeType& fileSize) {
     Fw::Success::T status = Fw::Success::SUCCESS;
-    // Get the buffer
-    Fw::Buffer buffer = container.getBuffer();
+    // Get the buffer. Read-only here, so a reference into the container is enough.
+    const Fw::Buffer& buffer = container.getBuffer();
     // Get the file size
     fileSize = container.getPacketSize();
     // Open the file
