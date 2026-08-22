@@ -333,6 +333,18 @@ Fw::SerializeStatus Buffer::deserializeFrom(Fw::SerialBufferBase& buffer, Fw::En
     return stat;
 }
 
+// ----------------------------------------------------------------------
+// Fw::BufferOwner
+// ----------------------------------------------------------------------
+
+void BufferOwner::claimBuffer(Buffer& buffer) const {
+    buffer.claim();
+}
+
+void BufferOwner::releaseBuffer(Buffer& buffer) const {
+    buffer.release();
+}
+
 #if FW_SERIALIZABLE_TO_STRING
 void Buffer::toString(Fw::StringBase& text) const {
     static const char* formatString = "(data = %p, size = %u, context = %u, offset = %u, capacity = %u)";

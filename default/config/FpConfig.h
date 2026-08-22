@@ -156,10 +156,15 @@ extern "C" {
 // observed -- and a check keyed on data could not tell those apart from the owner, so every one of them would have
 // to be silenced, and the silencing would hide real leaks just as well.
 //
-// So: Fw::Buffer::claim() declares a buffer answerable for its allocation, release() gives that up, a move carries it
-// to the destination, and a copy or Fw::Buffer::alias() produces a further reference that is never an owner.
-// Ownership does not survive serialization, so a buffer that arrives over an async port is a reference until
-// something in this address space claims it.
+// So: a move carries ownership to the destination, and a copy or Fw::Buffer::alias() produces a further reference
+// that is never an owner. Ownership does not survive serialization, so a buffer arriving over an async port is a
+// reference until something in this address space claims it.
+//
+// Granting and revoking ownership is restricted to the component answerable for the memory. Fw::Buffer's claim and
+// release are private, reachable only through the Fw::BufferOwner mixin that a buffer manager derives from. Were
+// they public, releasing a buffer would be the obvious way to quiet an assertion, and quieting that assertion is
+// exactly what a leak looks like -- so a component holding a buffer it owns has one way to be rid of it, which is to
+// hand it to someone else.
 //
 // All of F Prime's own hand-written source -- flight code and unit tests alike -- compiles with this enabled. What
 // does not, and therefore what still blocks turning it on, is code emitted by `fpp-to-cpp`:

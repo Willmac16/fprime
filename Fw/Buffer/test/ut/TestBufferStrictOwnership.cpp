@@ -25,7 +25,23 @@ namespace {
 //! Backing memory for buffers under test. Nothing frees it: Fw::Buffer only ever refers to memory owned elsewhere.
 U8 g_data[64];
 
+//! Stands in for the component answerable for g_data
+//!
+//! Ownership transitions are reachable only through Fw::BufferOwner, so the tests reach them the same way production
+//! code has to: by being the manager.
+class TestBufferOwner final : public Fw::BufferOwner {
+  public:
+    using Fw::BufferOwner::claimBuffer;
+    using Fw::BufferOwner::releaseBuffer;
+};
+
+TestBufferOwner g_owner;
+
 }  // namespace
+
+// Only a Fw::BufferOwner can grant or revoke ownership: a component handed a buffer cannot quietly disclaim it
+static_assert(not std::is_base_of<Fw::BufferOwner, Fw::Buffer>::value,
+              "Fw::Buffer must not be able to change its own ownership state");
 
 // A buffer that never claimed anything is safe to destroy
 TEST(StrictOwnership, DefaultConstructedBufferIsSafeToDestroy) {
@@ -48,7 +64,7 @@ TEST(StrictOwnership, DestroyingOwnedBufferAsserts) {
     ASSERT_DEATH_IF_SUPPORTED(
         {
             Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-            buffer.claim();
+            g_owner.claimBuffer(buffer);
         },
         "");
 }
@@ -56,9 +72,9 @@ TEST(StrictOwnership, DestroyingOwnedBufferAsserts) {
 // release() is how an owner states the allocation has been disposed of
 TEST(StrictOwnership, ReleaseMakesOwnedBufferSafeToDestroy) {
     Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    buffer.claim();
+    g_owner.claimBuffer(buffer);
     ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-    buffer.release();
+    g_owner.releaseBuffer(buffer);
     ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
     // release() gives up the claim without disturbing what the buffer refers to
     ASSERT_EQ(buffer.getOriginalData(), g_data);
@@ -71,7 +87,7 @@ TEST(StrictOwnership, ReleaseMakesOwnedBufferSafeToDestroy) {
 // had to be released too, release() would be a blanket silencer rather than a statement about disposal.
 TEST(StrictOwnership, AliasOfOwnedBufferIsNotAnOwner) {
     Fw::Buffer owner(g_data, sizeof(g_data), 1234);
-    owner.claim();
+    g_owner.claimBuffer(owner);
     {
         Fw::Buffer record = owner.alias();
         ASSERT_EQ(record.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
@@ -80,13 +96,13 @@ TEST(StrictOwnership, AliasOfOwnedBufferIsNotAnOwner) {
     }
     // The owner is untouched by the alias coming and going
     ASSERT_EQ(owner.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-    owner.release();
+    g_owner.releaseBuffer(owner);
 }
 
 // Moving hands the claim over along with the data
 TEST(StrictOwnership, MoveConstructionTransfersOwnership) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    source.claim();
+    g_owner.claimBuffer(source);
     Fw::Buffer destination(Fw::move(source));
 
     ASSERT_EQ(destination.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
@@ -95,13 +111,13 @@ TEST(StrictOwnership, MoveConstructionTransfersOwnership) {
     ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
     ASSERT_FALSE(source.isValid());
 
-    destination.release();
+    g_owner.releaseBuffer(destination);
     // Source is destroyed at end of scope having given up both the data and the claim
 }
 
 TEST(StrictOwnership, MoveAssignmentTransfersOwnership) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    source.claim();
+    g_owner.claimBuffer(source);
     Fw::Buffer destination;
     destination = Fw::move(source);
 
@@ -109,7 +125,7 @@ TEST(StrictOwnership, MoveAssignmentTransfersOwnership) {
     ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
     ASSERT_FALSE(source.isValid());
 
-    destination.release();
+    g_owner.releaseBuffer(destination);
 }
 
 // Moving an unclaimed buffer does not conjure ownership out of nothing
@@ -124,7 +140,7 @@ TEST(StrictOwnership, MovingUnclaimedBufferStaysUnowned) {
 // A moved-from buffer is emptied and disclaimed, not poisoned: it can take hold of memory again
 TEST(StrictOwnership, MovedFromBufferIsReusable) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    source.claim();
+    g_owner.claimBuffer(source);
     Fw::Buffer destination(Fw::move(source));
 
     source.set(g_data, 8, 5678);
@@ -132,13 +148,13 @@ TEST(StrictOwnership, MovedFromBufferIsReusable) {
     ASSERT_EQ(source.getSize(), 8);
     ASSERT_EQ(source.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
 
-    destination.release();
+    g_owner.releaseBuffer(destination);
 }
 
 // Self-move must not strip the buffer of its claim
 TEST(StrictOwnership, SelfMoveAssignmentKeepsTheClaim) {
     Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-    buffer.claim();
+    g_owner.claimBuffer(buffer);
     // Assign through an alias so this is a genuine self-move rather than a directly diagnosable one
     Fw::Buffer* self = &buffer;
     buffer = Fw::move(*self);
@@ -147,13 +163,13 @@ TEST(StrictOwnership, SelfMoveAssignmentKeepsTheClaim) {
     ASSERT_EQ(buffer.getOriginalData(), g_data);
     ASSERT_EQ(buffer.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
 
-    buffer.release();
+    g_owner.releaseBuffer(buffer);
 }
 
 // Handing a buffer down a chain of owners leaves exactly one of them answerable for it
 TEST(StrictOwnership, ChainedMovesLeaveOneOwner) {
     Fw::Buffer first(g_data, sizeof(g_data), 1234);
-    first.claim();
+    g_owner.claimBuffer(first);
     Fw::Buffer second(Fw::move(first));
     Fw::Buffer third;
     third = Fw::move(second);
@@ -163,7 +179,7 @@ TEST(StrictOwnership, ChainedMovesLeaveOneOwner) {
     ASSERT_EQ(third.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
     ASSERT_EQ(third.getOriginalData(), g_data);
 
-    third.release();
+    g_owner.releaseBuffer(third);
 }
 
 // Moving preserves the offset/size/capacity bookkeeping that identifies the original allocation
@@ -184,7 +200,7 @@ TEST(StrictOwnership, ReWrappingOwnedBufferAsserts) {
     ASSERT_DEATH_IF_SUPPORTED(
         {
             Fw::Buffer buffer(g_data, sizeof(g_data), 1234);
-            buffer.claim();
+            g_owner.claimBuffer(buffer);
             buffer.set(g_data, 8, 5678);
         },
         "");
@@ -193,7 +209,7 @@ TEST(StrictOwnership, ReWrappingOwnedBufferAsserts) {
 // Ownership is a local property: it does not travel over the wire
 TEST(StrictOwnership, DeserializedBufferIsNotAnOwner) {
     Fw::Buffer source(g_data, sizeof(g_data), 1234);
-    source.claim();
+    g_owner.claimBuffer(source);
 
     U8 wire[Fw::Buffer::SERIALIZED_SIZE];
     Fw::ExternalSerializeBuffer serialized(wire, sizeof(wire));
@@ -204,7 +220,7 @@ TEST(StrictOwnership, DeserializedBufferIsNotAnOwner) {
     ASSERT_EQ(received.getOriginalData(), g_data);
     ASSERT_EQ(received.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
 
-    source.release();
+    g_owner.releaseBuffer(source);
 }
 
 int main(int argc, char** argv) {

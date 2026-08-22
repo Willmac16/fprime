@@ -92,9 +92,8 @@ of a function returning `Fw::Buffer`.
 A moved-from buffer is reset, not poisoned: calling `set()` on it, or assigning another buffer to it, makes it usable
 again. Self-move-assignment is a no-op and leaves the buffer unchanged.
 
-`release()` states that this buffer is no longer answerable for the memory it wraps, without freeing anything or
-disturbing what the buffer refers to. Use it where an allocation has been disposed of by some means other than a move
--- returned to its manager, or handed on as a raw pointer. See the next section for what ownership means.
+Whether a buffer is answerable for the memory it wraps is tracked on the buffer itself, and only the component
+managing that memory can change it. See the next section.
 
 #### 2.1.3 Strict Ownership (`FW_BUFFER_STRICT_OWNERSHIP`)
 
@@ -109,11 +108,29 @@ buffer referring to a given allocation should be `OWNED`, and that one is answer
 
 | Operation | Effect on ownership |
 |---|---|
-| `claim()` | Marks this buffer `OWNED`. Whoever hands out an allocation calls it on what it hands out. |
-| `release()` | Marks this buffer `NOT_OWNED`, leaving the data pointer, offset, size, capacity, and context alone. States that the allocation has been disposed of, not that it has been freed. |
+| `Fw::BufferOwner::claimBuffer()` | Marks the buffer `OWNED`. Whoever hands out an allocation calls it on what it hands out. |
+| `Fw::BufferOwner::releaseBuffer()` | Marks the buffer `NOT_OWNED`, leaving the data pointer, offset, size, capacity, and context alone. States that the allocation has been disposed of, not that it has been freed. |
 | move | Carries the state to the destination; the source is emptied and left `NOT_OWNED`. |
 | copy / `alias()` | Result is always `NOT_OWNED`. Another reference is not another owner. |
 | deserialization | Result is `NOT_OWNED`. Ownership is a local property and is not carried on the wire. |
+
+##### Only the manager may grant or revoke it
+
+`Fw::Buffer`'s claim and release are private. The only way to reach them is `Fw::BufferOwner`, a mixin that a
+component derives from to declare itself answerable for a pool of buffer memory:
+
+```c++
+class MyBufferPool final : public MyBufferPoolComponentBase, public Fw::BufferOwner { ... };
+```
+
+This is deliberate. If any component could release a buffer, releasing it would be the obvious way to quiet an
+assertion — and quieting that assertion is exactly what a leak looks like. Keeping both ends of ownership with the
+manager leaves a component holding a buffer it owns exactly one way to be rid of it: hand it to someone else. A
+component cannot mint ownership either, so it cannot declare itself the owner of memory it did not allocate.
+
+Deriving from `Fw::BufferOwner` does not make the transitions correct on its own — a manager can still release a
+buffer it never handed out — but it puts them somewhere they get reviewed, in the handful of components that manage
+memory rather than scattered across every component that touches a buffer.
 
 This is what makes the destructor check worth having. Keying it on whether the buffer refers to data instead would
 make an owner indistinguishable from an alias, so every alias would need silencing — and the silencing would hide
@@ -133,17 +150,17 @@ port in the system is not a trade F´ should make.
 | Destroying a `NOT_OWNED` buffer | Silent | Silent, however much data it refers to |
 | `set()` on an `OWNED` buffer | Silent | **Assertion failure**: it would drop the allocation |
 
-`claim()`, `release()`, `alias()`, and `getOwnershipState()` are available in both configurations, so components can
-be written once and built either way. `Svc::BufferManager` already uses them: it claims the buffer it returns from
-`bufferGetCallee`, and releases the one handed back on `bufferSendIn`.
+`Fw::BufferOwner`, `alias()`, and `getOwnershipState()` are available in both configurations, so components can be
+written once and built either way. `Svc::BufferManager` already derives from `Fw::BufferOwner`: it claims the buffer
+it returns from `bufferGetCallee`, and releases the one handed back on `bufferSendIn`.
 
 ```c++
-// Hand out an allocation
+// Hand out an allocation (inside a Fw::BufferOwner)
 Fw::Buffer allocated(binBuffer.getData(), binBuffer.getSize(), binBuffer.getContext());
-allocated.claim();     // the caller is answerable for this until it comes back
+this->claimBuffer(allocated);   // the caller is answerable for this until it comes back
 return allocated;
 
-// Record what was handed out without becoming a second owner
+// Record what was handed out without becoming a second owner (anywhere)
 Fw::Buffer record = allocated.alias();
 ```
 

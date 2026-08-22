@@ -99,7 +99,7 @@ void BufferManagerComponentImpl ::bufferSendIn_handler(const FwIndexType portNum
     this->m_buffers[id].allocated = false;
     this->m_currBuffs--;
     // The allocation is back in the pool, so the caller's buffer is answerable for it no longer
-    fwBuffer.release();
+    this->releaseBuffer(fwBuffer);
 }
 
 Fw::Buffer BufferManagerComponentImpl ::bufferGetCallee_handler(const FwIndexType portNum, Fw::Buffer::SizeType size) {
@@ -121,7 +121,7 @@ Fw::Buffer BufferManagerComponentImpl ::bufferGetCallee_handler(const FwIndexTyp
             // change size to match request
             allocated.setSize(size);
             // The caller is answerable for this allocation until it comes back through bufferSendIn
-            allocated.claim();
+            this->claimBuffer(allocated);
             return allocated;
         }
     }

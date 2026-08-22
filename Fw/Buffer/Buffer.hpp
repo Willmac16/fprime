@@ -25,7 +25,8 @@
 // Forward declaration for UTs
 namespace Fw {
 class BufferTester;
-}
+class BufferOwner;
+}  // namespace Fw
 
 namespace Fw {
 
@@ -52,6 +53,8 @@ namespace Fw {
 //!
 class Buffer : public Fw::Serializable {
     friend class Fw::BufferTester;
+    // Grants and revokes ownership on behalf of whoever is answerable for the memory. See Fw::BufferOwner.
+    friend class Fw::BufferOwner;
 
   public:
     //! Buffer ownership state
@@ -276,25 +279,6 @@ class Buffer : public Fw::Serializable {
     //! \param context: user-specified context to track creation. Default: no context
     void set(U8* data, FwSizeType size, U32 context = NO_CONTEXT);
 
-    //! Declare this buffer answerable for the memory it wraps
-    //!
-    //! Marks the buffer OWNED. Whoever hands out an allocation calls this on the buffer it hands out -- a buffer
-    //! manager on the buffer it returns from a get, a driver on a buffer it allocated -- so that dropping that
-    //! buffer without disposing of it is caught rather than silently leaking the allocation.
-    //!
-    //! It is invalid to claim a buffer that refers to no data.
-    void claim();
-
-    //! Give up this buffer's claim on the memory it wraps
-    //!
-    //! Marks the buffer NOT_OWNED, leaving everything else -- data pointer, offset, size, capacity, context --
-    //! untouched. The memory itself is not freed: `release()` states that this buffer is no longer answerable for
-    //! it. Call it once the allocation has been returned to its manager, or handed off by raw pointer.
-    //!
-    //! Calling this on a buffer that was never claimed is a no-op. Under FW_BUFFER_STRICT_OWNERSHIP this is how an
-    //! owning buffer is made safe to destroy, short of moving it on to the next owner.
-    void release();
-
     //! Return whether this buffer is answerable for the memory it wraps
     //! \return OWNED if this buffer has claimed the allocation, NOT_OWNED otherwise
     OwnershipState getOwnershipState() const;
@@ -326,6 +310,20 @@ class Buffer : public Fw::Serializable {
 #endif
 
   private:
+    //! Declare this buffer answerable for the memory it wraps
+    //!
+    //! Reachable only through Fw::BufferOwner: granting ownership is the business of whoever hands out the
+    //! allocation, not of the code being handed one.
+    //!
+    //! It is invalid to claim a buffer that refers to no data.
+    void claim();
+
+    //! Give up this buffer's claim on the memory it wraps
+    //!
+    //! Reachable only through Fw::BufferOwner. Marks the buffer NOT_OWNED, leaving everything else -- data pointer,
+    //! offset, size, capacity, context -- untouched; the memory itself is not freed.
+    void release();
+
     //! Reset this buffer to the default-constructed state, giving up any claim, without touching the wrapped memory
     //!
     //! Used to empty the source of a move so that only the destination refers to the wrapped data.
@@ -338,6 +336,58 @@ class Buffer : public Fw::Serializable {
     FwSizeType m_capacity;                         //<! capacity - Size of the original allocation in bytes
     U32 m_context;                                 //!< Creation context for disposal
     OwnershipState m_ownership;                    //!< Whether this buffer is answerable for the wrapped memory
+};
+//! Base class for the component answerable for a pool of Fw::Buffer memory
+//!
+//! An Fw::Buffer's ownership state may only be changed by the component that hands the allocation out and takes it
+//! back -- a buffer manager, a static memory pool, a driver managing its own storage. Deriving from this class is how
+//! a component declares itself to be that, and it is the only way to reach Fw::Buffer's claim and release.
+//!
+//! Everyone else disposes of a buffer by moving it on, and that restriction is what makes the leak check under
+//! FW_BUFFER_STRICT_OWNERSHIP worth having. If any component could release a buffer, releasing it would be the
+//! obvious way to quiet an assertion -- and quieting that assertion is exactly what a leak looks like. Keeping both
+//! ends of ownership with the manager leaves a component holding a buffer it owns one way to be rid of it: hand it
+//! to someone else.
+//!
+//! Deriving from Fw::BufferOwner is a deliberate and greppable act. It does not make the transitions correct on its
+//! own -- a manager can still release a buffer it never handed out -- but it puts them somewhere they get reviewed.
+//!
+//! ```c++
+//! class MyBufferPool final : public MyBufferPoolComponentBase, public Fw::BufferOwner {
+//!     Fw::Buffer allocate(FwSizeType size) {
+//!         Fw::Buffer buffer(this->m_storage, size);
+//!         this->claimBuffer(buffer);  // the caller is answerable for it from here
+//!         return buffer;
+//!     }
+//!     void handBack(Fw::Buffer& buffer) {
+//!         this->releaseBuffer(buffer);  // back in the pool, nobody is answerable for it
+//!     }
+//! };
+//! ```
+class BufferOwner {
+  protected:
+    //! Construct a buffer owner
+    BufferOwner() = default;
+
+    //! Destroy a buffer owner
+    //!
+    //! Not virtual: Fw::BufferOwner is a mixin declaring a capability, never deleted through a base pointer.
+    ~BufferOwner() = default;
+
+    //! Declare `buffer` answerable for its allocation, marking it OWNED
+    //!
+    //! It is invalid to claim a buffer that refers to no data.
+    //!
+    //! \param buffer: buffer being handed out
+    void claimBuffer(Buffer& buffer) const;
+
+    //! Give up `buffer`'s claim on its allocation, marking it NOT_OWNED
+    //!
+    //! Leaves the data pointer, offset, size, capacity, and context alone; the memory is not freed. Calling this on
+    //! a buffer that was never claimed is a no-op.
+    //!
+    //! \param buffer: buffer being taken back
+    void releaseBuffer(Buffer& buffer) const;
 };
 }  // end namespace Fw
 #endif /* BUFFER_HPP_ */
