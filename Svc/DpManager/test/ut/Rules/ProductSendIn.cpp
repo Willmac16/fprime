@@ -32,7 +32,7 @@ void TestState ::action__ProductSendIn__OK() {
     const auto id =
         static_cast<FwDpIdType>(STest::Pick::lowerUpper(0, static_cast<U32>(std::numeric_limits<FwDpIdType>::max())));
     const FwSizeType size = this->abstractState.getBufferSize();
-    const Fw::Buffer buffer(this->abstractState.bufferData, static_cast<Fw::Buffer::SizeType>(size));
+    Fw::Buffer buffer(this->abstractState.bufferData, static_cast<Fw::Buffer::SizeType>(size));
     this->invoke_to_productSendIn(portNum, id, buffer);
     this->doDispatch();
     // Check events

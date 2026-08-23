@@ -86,9 +86,9 @@ void FprimeRouterTester ::testFileContextRoundTrip() {
     ASSERT_from_fileOut_SIZE(1);
     ASSERT_from_dataReturnOut_SIZE(0);  // not returned yet
 
-    // Return the same buffer the router emitted on fileOut. Aliased rather than referenced: the port takes a
-    // mutable buffer, and the history entry must stay intact for the assertions below.
-    Fw::Buffer returned = this->fromPortHistory_fileOut->at(0).fwBuffer.alias();
+    // Return the very buffer the router emitted on fileOut. The history entry holds it, so this hands that one
+    // back rather than making a second reference to it.
+    Fw::Buffer& returned = this->fromPortHistory_fileOut->at(0).fwBuffer;
     this->invoke_to_fileBufferReturnIn(0, returned);
     ASSERT_from_dataReturnOut_SIZE(1);
     ASSERT_EQ(this->fromPortHistory_dataReturnOut->at(0).context.get_vcId(), FprimeRouterTester::TEST_VC_ID);

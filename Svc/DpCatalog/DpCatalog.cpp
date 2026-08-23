@@ -526,8 +526,8 @@ DpCatalog::ProcessFileStatus DpCatalog::processFile(const Fw::String& fullFile, 
     // if all is well, don't need the file any more
     dpFile.close();
 
-    // give buffer to container instance
-    container.setBuffer(hdrBuff);
+    // give buffer to container instance; nothing here refers to hdrBuff again
+    container.setBuffer(Fw::move(hdrBuff));
 
     // make sure the header metadata matches its stored hash before trusting it
     Utils::HashBuffer storedHash;

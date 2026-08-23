@@ -100,20 +100,21 @@ TEST(StrictOwnership, ReleasedBufferYieldsNoSerializer) {
     ASSERT_EQ(serializer.getCapacity(), 0);
 }
 
-// An alias is another reference, not another owner. This is what keeps the destructor check meaningful: if aliases
-// had to be released too, release() would be a blanket silencer rather than a statement about disposal.
-TEST(StrictOwnership, AliasOfOwnedBufferIsNotAnOwner) {
-    Fw::Buffer owner(g_data, sizeof(g_data), 1234);
-    g_owner.claimBuffer(owner);
-    {
-        Fw::Buffer record = owner.alias();
-        ASSERT_EQ(record.getOwnershipState(), Fw::Buffer::OwnershipState::NOT_OWNED);
-        ASSERT_EQ(record.getOriginalData(), g_data);
-        // record is destroyed here, unreleased, and must not assert
-    }
-    // The owner is untouched by the alias coming and going
-    ASSERT_EQ(owner.getOwnershipState(), Fw::Buffer::OwnershipState::OWNED);
-    g_owner.releaseBuffer(owner);
+// There is no way to make a second reference to a buffer's memory. That is the whole of the use-after-free argument:
+// a dangling reference cannot be created because a reference cannot be created, so no amount of care about when the
+// owner hands the buffer back is required of anyone else.
+//
+// These are compile-time checks because they are the part of the problem a compiler can decide. Whether a particular
+// buffer still owns memory at the end of its scope is flow-sensitive, and C++ has no linear types, so the
+// destructor's assertion below remains the backstop for that half.
+TEST(StrictOwnership, ABufferCannotBeCopiedOrAliased) {
+    static_assert(!std::is_copy_constructible<Fw::Buffer>::value, "a buffer must not be copy constructible");
+    static_assert(!std::is_copy_assignable<Fw::Buffer>::value, "a buffer must not be copy assignable");
+    static_assert(std::is_move_constructible<Fw::Buffer>::value, "a buffer must be move constructible");
+    static_assert(std::is_move_assignable<Fw::Buffer>::value, "a buffer must be move assignable");
+    // alias() is not declared at all under this setting. Verified by compiling `owner.alias()` here, which fails
+    // with "'class Fw::Buffer' has no member named 'alias'".
+    SUCCEED();
 }
 
 // Moving hands the claim over along with the data

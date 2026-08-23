@@ -122,7 +122,6 @@ class UdpTester : public UdpGTestBase {
     Fw::Buffer m_data_buffer;
     //! Protects m_data_buffer, which is shared with the receive thread's handler
     Os::Mutex m_buffer_lock;
-    Fw::Buffer m_data_buffer2;
     U8 m_data_storage[SEND_DATA_BUFFER_SIZE];
     std::atomic<bool> m_spinner;
 };

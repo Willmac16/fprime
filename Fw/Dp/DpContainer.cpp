@@ -16,6 +16,7 @@ namespace Fw {
 // Constructor
 // ----------------------------------------------------------------------
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
 DpContainer::DpContainer(FwDpIdType id, const Fw::Buffer& buffer)
     : m_id(id), m_priority(0), m_timeTag(), m_procTypes(0), m_dpState(), m_dataSize(0), m_buffer(), m_dataBuffer() {
     // Initialize the user data field
@@ -24,6 +25,7 @@ DpContainer::DpContainer(FwDpIdType id, const Fw::Buffer& buffer)
     // This action also updates the data buffer
     this->setBuffer(buffer);
 }
+#endif
 
 DpContainer::DpContainer(FwDpIdType id, Fw::Buffer&& buffer)
     : m_id(id), m_priority(0), m_timeTag(), m_procTypes(0), m_dpState(), m_dataSize(0), m_buffer(), m_dataBuffer() {
@@ -128,10 +130,12 @@ void DpContainer::serializeHeader() {
     this->updateHeaderHash();
 }
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
 void DpContainer::setBuffer(const Buffer& buffer) {
     // Alias rather than take: the caller lent a reference and stays answerable for returning the allocation.
     this->takeBuffer(buffer.alias());
 }
+#endif
 
 void DpContainer::setBuffer(Buffer&& buffer) {
     // Take the caller's buffer, leaving its handle empty. Returning the packet is this container's job from here on.

@@ -80,7 +80,7 @@ class ComAggregator final : public ComAggregatorComponentBase, public Fw::Buffer
     //! Fill the buffer with data
     void Svc_AggregationMachine_action_doFill(SmId smId,                              //!< The state machine id
                                               Svc_AggregationMachine::Signal signal,  //!< The signal
-                                              const Svc::ComDataContextPair& value    //!< The value
+                                              Svc::ComDataContextPair& value    //!< The value
                                               ) override;
 
     //! Implementation for action doSend of state machine Svc_AggregationMachine
@@ -95,7 +95,7 @@ class ComAggregator final : public ComAggregatorComponentBase, public Fw::Buffer
     //! Hold a buffer
     void Svc_AggregationMachine_action_doHold(SmId smId,                              //!< The state machine id
                                               Svc_AggregationMachine::Signal signal,  //!< The signal
-                                              const Svc::ComDataContextPair& value    //!< The value
+                                              Svc::ComDataContextPair& value    //!< The value
                                               ) override;
 
     //! Implementation for action assertNoStatus of state machine Svc_AggregationMachine
@@ -115,7 +115,7 @@ class ComAggregator final : public ComAggregatorComponentBase, public Fw::Buffer
     //! Check if full
     bool Svc_AggregationMachine_guard_isFull(SmId smId,                              //!< The state machine id
                                              Svc_AggregationMachine::Signal signal,  //!< The signal
-                                             const Svc::ComDataContextPair& value    //!< The value
+                                             Svc::ComDataContextPair& value    //!< The value
     ) const override;
 
     //! Implementation for guard willFill of state machine Svc_AggregationMachine
@@ -123,7 +123,7 @@ class ComAggregator final : public ComAggregatorComponentBase, public Fw::Buffer
     //! Check if the incoming buffer will exactly fill the aggregation buffer
     bool Svc_AggregationMachine_guard_willFill(SmId smId,                              //!< The state machine id
                                                Svc_AggregationMachine::Signal signal,  //!< The signal
-                                               const Svc::ComDataContextPair& value    //!< The value
+                                               Svc::ComDataContextPair& value    //!< The value
     ) const override;
 
     //! Implementation for guard isNotEmpty of state machine Svc_AggregationMachine

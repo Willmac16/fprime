@@ -375,12 +375,12 @@ Fw::Success::T FileManagerTester ::productGet_handler(FwDpIdType id, FwSizeType 
     const FwSizeType bufferSize =
         this->m_dpGetUndersizedBuffer ? Fw::DpContainer::MIN_PACKET_SIZE : sizeof this->m_dpContainerData;
     this->m_dpContainerBuffer = Fw::Buffer(this->m_dpContainerData, bufferSize);
-    // The tester keeps its own record of the container buffer, so hand out an explicit alias
-    buffer = this->m_dpContainerBuffer.alias();
+    // Hand the container buffer over rather than keeping a second reference to it
+    buffer = Fw::move(this->m_dpContainerBuffer);
     return Fw::Success::SUCCESS;
 }
 
-void FileManagerTester ::productSend_handler(FwDpIdType id, const Fw::Buffer& buffer) {
+void FileManagerTester ::productSend_handler(FwDpIdType id, Fw::Buffer& buffer) {
     this->m_dpSendCount++;
     this->m_dpBytesSent += buffer.getSize();
 
@@ -388,8 +388,11 @@ void FileManagerTester ::productSend_handler(FwDpIdType id, const Fw::Buffer& bu
     // Each container holds one chunk: a FileChunkHeaderRecord followed by a
     // FileChunkDataRecord, so a non-zero data size confirms the chunk actually
     // carried header-plus-data content rather than an empty container.
-    Fw::DpContainer container(id, buffer);
-    if (container.deserializeHeader() == Fw::FW_SERIALIZE_OK) {
+    // Lend the packet to a container to read its header back, then take it straight back
+    Fw::DpContainer container(id, Fw::move(buffer));
+    const bool headerOk = container.deserializeHeader() == Fw::FW_SERIALIZE_OK;
+    buffer = Fw::move(container.getBuffer());
+    if (headerOk) {
         this->m_dpLastPriority = container.getPriority();
         const FwSizeType dataSize = container.getDataSize();
         this->m_dpPayloadBytes += dataSize;

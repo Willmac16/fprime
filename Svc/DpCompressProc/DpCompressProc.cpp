@@ -59,8 +59,12 @@ void DpCompressProc ::procRequest_handler(FwIndexType portNum, Fw::Buffer& fwBuf
         return;
     }
 
-    Fw::DpContainer container(0, fwBuffer);
+    // Lend the packet to a container to parse its header, then take it straight back. A container takes the buffer
+    // it is built over, and this handler owns the packet for the rest of the function, so the loan is bracketed
+    // here rather than left open across the early returns below.
+    Fw::DpContainer container(0, Fw::move(fwBuffer));
     const Fw::SerializeStatus desStat = container.deserializeHeader();
+    fwBuffer = Fw::move(container.getBuffer());
     if (desStat != Fw::FW_SERIALIZE_OK) {
         // Cannot process a container with an invalid header. Give up
         this->log_WARNING_HI_InvalidHeader(fwBuffer.getSize(), static_cast<U32>(desStat));

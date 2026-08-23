@@ -11,6 +11,7 @@
 
 #include "Fw/Com/ComPacket.hpp"
 #include "Fw/Dp/DpContainer.hpp"
+#include "Fw/LanguageHelpers.hpp"
 #include "Fw/FPrimeBasicTypes.hpp"
 
 #define DP_CONTAINER_HEADER_ASSERT_MSG(actual, expected) \
@@ -115,9 +116,12 @@ struct DpContainerHeader {
         U8* const buffAddrBase = buffer.getData();
         U8* const dataAddr = &buffAddrBase[DpContainer::DATA_OFFSET];
         Utils::Hash::hash(dataAddr, this->m_dataSize, computedHashBuffer);
-        DpContainer container(this->m_id, buffer);
+        // Lend the packet to a container to work out where the hash sits, then take it straight back: a container
+        // takes the buffer it is built over, and the caller still owns the packet.
+        DpContainer container(this->m_id, Fw::move(buffer));
         container.setDataSize(this->m_dataSize);
         const FwSizeType dataHashOffset = container.getDataHashOffset();
+        buffer = Fw::move(container.getBuffer());
         Utils::HashBuffer storedHashBuffer(&buffAddrBase[dataHashOffset], HASH_DIGEST_LENGTH);
         DP_CONTAINER_HEADER_ASSERT_EQ(computedHashBuffer, storedHashBuffer);
     }

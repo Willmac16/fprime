@@ -14,6 +14,7 @@
 
 #include <Fw/FPrimeBasicTypes.hpp>
 #include <Fw/Types/Serializable.hpp>
+#include <type_traits>
 #if FW_SERIALIZABLE_TO_STRING
 #include <Fw/Types/StringType.hpp>
 #ifdef BUILD_UT
@@ -292,20 +293,23 @@ class Buffer : public Fw::Serializable {
     //! \return OWNED if this buffer has claimed the allocation, NOT_OWNED otherwise
     OwnershipState getOwnershipState() const;
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
     //! Construct a second buffer over the same wrapped data, deliberately
     //!
-    //! Strict ownership forbids implicit copies so that handing a buffer on is always visible in the source. It does
-    //! not forbid two objects referring to the same allocation where that is genuinely what is wanted -- a manager
-    //! keeping a record of what it handed out, a test recording what it observed, a wrapper aliasing a buffer it was
-    //! given by reference. `alias()` is that operation, spelled out so it can be found and reviewed.
-    //!
     //! The returned buffer refers to the same memory with the same original pointer, offset, size, capacity, and
-    //! context, but it is always NOT_OWNED: an alias is another reference, not another owner. Responsibility for the
-    //! allocation stays exactly where it was, and destroying the alias is silent even under
-    //! FW_BUFFER_STRICT_OWNERSHIP.
+    //! context, but it is never an owner: an alias is another reference, not another owner. Responsibility for the
+    //! allocation stays exactly where it was.
+    //!
+    //! \warning This does not exist under FW_BUFFER_STRICT_OWNERSHIP, and that is the point of the setting. A
+    //! \warning second reference to managed memory is a use-after-free waiting for the owner to hand the buffer
+    //! \warning back: the alias goes on pointing into a pool that now belongs to somebody else, and nothing about
+    //! \warning the alias says so. Under strict ownership a buffer that refers to managed memory is the only one
+    //! \warning that does, so where code used to alias it must now either take the buffer -- `Fw::move` -- or
+    //! \warning borrow it for the length of a call as a `const Buffer&` without storing it.
     //!
     //! \return a non-owning buffer referring to the same wrapped data as this one
     Buffer alias() const;
+#endif
 
 #if FW_SERIALIZABLE_TO_STRING || BUILD_UT
     //! Supports writing this buffer to a string representation
@@ -405,5 +409,18 @@ class BufferOwner {
     //! \param buffer: buffer being taken back
     void releaseBuffer(Buffer& buffer) const;
 };
+
+#if FW_BUFFER_STRICT_OWNERSHIP
+// The shape of the type is checkable at compile time, so check it here rather than trusting review. Whether a
+// particular buffer still owns memory when it is destroyed is not: that is flow-sensitive, and C++ has no linear
+// types, so the destructor's assertion remains the backstop for it.
+static_assert(!std::is_copy_constructible<Buffer>::value,
+              "Fw::Buffer must not be copy constructible under FW_BUFFER_STRICT_OWNERSHIP");
+static_assert(!std::is_copy_assignable<Buffer>::value,
+              "Fw::Buffer must not be copy assignable under FW_BUFFER_STRICT_OWNERSHIP");
+static_assert(std::is_move_constructible<Buffer>::value, "Fw::Buffer must be move constructible");
+static_assert(std::is_move_assignable<Buffer>::value, "Fw::Buffer must be move assignable");
+#endif
+
 }  // end namespace Fw
 #endif /* BUFFER_HPP_ */

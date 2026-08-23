@@ -40,18 +40,20 @@ class BufferTester {
         buffer_set.set(data, sizeof(data), 1234);
         ASSERT_EQ(buffer_set, buffer);
 
-        // Check constructors and assignments. alias() rather than a copy so this file also compiles under
-        // FW_BUFFER_STRICT_OWNERSHIP, where the copy operations are deleted; the semantics under test are the same.
+        // Creating empty buffer
+        Fw::Buffer testBuffer(nullptr, 0);
+        ASSERT_EQ(testBuffer.getData(), nullptr);
+        ASSERT_EQ(testBuffer.getSize(), 0);
+
+#if !FW_BUFFER_STRICT_OWNERSHIP
+        // Several buffers referring to one allocation, and what modifying one does to the others. None of this
+        // exists under FW_BUFFER_STRICT_OWNERSHIP: there a buffer that refers to managed memory is the only one
+        // that does, which is what makes a dangling second reference impossible rather than merely discouraged.
         Fw::Buffer buffer_new = buffer.alias();
         ASSERT_EQ(buffer_new.getData(), data);
         ASSERT_EQ(buffer_new.getSize(), sizeof(data));
         ASSERT_EQ(buffer_new.getContext(), 1234);
         ASSERT_EQ(buffer, buffer_new);
-
-        // Creating empty buffer
-        Fw::Buffer testBuffer(nullptr, 0);
-        ASSERT_EQ(testBuffer.getData(), nullptr);
-        ASSERT_EQ(testBuffer.getSize(), 0);
 
         // Assignment operator with transitivity
         Fw::Buffer buffer_assignment1, buffer_assignment2;
@@ -76,6 +78,9 @@ class BufferTester {
         buffer_assignment1.setContext(22222);
         buffer_assignment2.set(faux, 0);
         buffer_assignment2.setContext(22222);
+#else
+        (void)faux;
+#endif
 
         ASSERT_EQ(buffer.getData(), data);
         ASSERT_EQ(buffer.getSize(), sizeof(data));
@@ -111,12 +116,14 @@ class BufferTester {
         buffer.setSize(sizeof(data) - 25);
         ASSERT_EQ(buffer.getSize(), sizeof(data) - 25);
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
         // Aliases preserve offset and capacity
         Fw::Buffer copy = buffer.alias();
         ASSERT_EQ(copy.getOriginalData(), data);
         ASSERT_EQ(copy.getOffset(), 25);
         ASSERT_EQ(copy.getCapacity(), sizeof(data));
         ASSERT_EQ(copy, buffer);
+#endif
 
         // Out-of-bounds operations assert
         U8* unrelated = new U8[100];

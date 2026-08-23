@@ -285,7 +285,7 @@ void ComAggregatorTester ::test_hold_while_waiting() {
               Svc::ComAggregatorComponentBase::MsgDispatchStatus::MSG_DISPATCH_OK);  // Dispatch the state machine
     ASSERT_from_dataOut_SIZE(1);
     this->validate_aggregation(this->fromPortHistory_dataOut->at(0).data);
-    Fw::Buffer major_buffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::Buffer& major_buffer = this->fromPortHistory_dataOut->at(0).data;
 
     // Invoke some number of failures
     for (U32 i = 0; i < STest::Pick::lowerUpper(1, 5); i++) {

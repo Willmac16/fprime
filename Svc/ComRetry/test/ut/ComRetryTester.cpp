@@ -31,9 +31,10 @@ void ComRetryTester ::receiveBuffer(Fw::Buffer& buffer, ComCfg::FrameContext& co
     this->returnBuffer(buffer, context);
 }
 
-void ComRetryTester ::returnBuffer(const Fw::Buffer& buffer, ComCfg::FrameContext& context) {
-    Fw::Buffer returning = buffer.alias();
-    invoke_to_dataReturnIn(0, returning, context);
+void ComRetryTester ::returnBuffer(Fw::Buffer& buffer, ComCfg::FrameContext& context) {
+    // Hand the buffer back on dataReturnIn. ComRetry takes what it is given, so this passes the buffer itself
+    // rather than a second reference to it -- there is no such thing under strict ownership.
+    invoke_to_dataReturnIn(0, buffer, context);
 }
 
 void ComRetryTester ::checkDataOut(FwIndexType expectedIndex, U8* expectedData, FwSizeType expectedDataSize) {

@@ -71,9 +71,15 @@ class DpContainer {
     // ----------------------------------------------------------------------
 
     //! Constructor for initialized container
+#if !FW_BUFFER_STRICT_OWNERSHIP
+    //! Constructor for container that aliases the caller's packet buffer
+    //!
+    //! Does not exist under FW_BUFFER_STRICT_OWNERSHIP: there the container takes the buffer it is built over, and
+    //! there is no way to refer to managed memory without taking it.
     DpContainer(FwDpIdType id,            //!< The container id
                 const Fw::Buffer& buffer  //!< The buffer
     );
+#endif
 
     //! Constructor for container that takes its packet buffer
     //!
@@ -201,11 +207,14 @@ class DpContainer {
         this->m_dataSize = dataSize;
     }
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
     //! Set the packet buffer, aliasing the caller's
     //!
-    //! Responsibility for the allocation stays with whoever passed the buffer in.
+    //! Responsibility for the allocation stays with whoever passed the buffer in. Does not exist under
+    //! FW_BUFFER_STRICT_OWNERSHIP, where a buffer is always taken.
     void setBuffer(const Buffer& buffer  //!< The packet buffer
     );
+#endif
 
     //! Set the packet buffer, taking it from the caller
     //!

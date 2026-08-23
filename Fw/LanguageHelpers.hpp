@@ -14,6 +14,22 @@
 #include <type_traits>
 #include "Fw/Types/Assert.hpp"
 #include "Fw/Types/ByteArray.hpp"
+
+//! \brief mark a return value the caller must not silently discard
+//!
+//! Applied to anything that hands out an Fw::Buffer. Under FW_BUFFER_STRICT_OWNERSHIP a buffer that comes back from
+//! a manager is the caller's to hand on, so dropping the returned value on the floor is a leak -- and unlike the
+//! destructor's assertion, which can only fire once the program is running, this one is a compile error under
+//! -Werror. It is the narrow part of the problem the compiler can actually see: what a caller does with a value it
+//! never bound is decidable, where whether a bound buffer is still owned at the end of its scope is not.
+#ifndef FW_WARN_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
+#define FW_WARN_UNUSED __attribute__((warn_unused_result))
+#else
+#define FW_WARN_UNUSED
+#endif
+#endif
+
 namespace Fw {
 //! \brief cast a value to an rvalue reference so that it can be moved from
 //!

@@ -52,10 +52,12 @@ void DpWriter::bufferSendIn_handler(const FwIndexType portNum, Fw::Buffer& buffe
             status = Fw::Success::FAILURE;
         }
     }
-    // Set up the container and check that the header hash is valid
+    // Set up the container and check that the header hash is valid. The container takes the buffer for the body of
+    // this handler -- it is the single owner while the packet is being read and written -- and the buffer is taken
+    // back below to hand to the allocator.
     Fw::DpContainer container;
     if (status == Fw::Success::SUCCESS) {
-        container.setBuffer(buffer);
+        container.setBuffer(Fw::move(buffer));
         Utils::HashBuffer storedHash;
         Utils::HashBuffer computedHash;
         status = container.checkHeaderHash(storedHash, computedHash);
@@ -66,7 +68,7 @@ void DpWriter::bufferSendIn_handler(const FwIndexType portNum, Fw::Buffer& buffe
     }
     // Deserialize the packet header
     if (status == Fw::Success::SUCCESS) {
-        status = this->deserializePacketHeader(buffer, container);
+        status = this->deserializePacketHeader(container);
     }
     // Check that the packet size fits in the buffer
     if (status == Fw::Success::SUCCESS) {
@@ -105,7 +107,11 @@ void DpWriter::bufferSendIn_handler(const FwIndexType portNum, Fw::Buffer& buffe
     if (status == Fw::Success::SUCCESS) {
         this->sendNotification(container, fileName, fileSize);
     }
-    // Deallocate the buffer
+    // Take the buffer back from the container and deallocate it. If the handler failed before the container was
+    // given the buffer, this handler still holds it and there is nothing to take back.
+    if (!buffer.isValid()) {
+        buffer = Fw::move(container.getBuffer());
+    }
     if (buffer.isValid()) {
         this->deallocBufferSendOut_out(0, buffer);
     }
@@ -151,12 +157,13 @@ void DpWriter::CLEAR_EVENT_THROTTLE_cmdHandler(FwOpcodeType opCode, U32 cmdSeq) 
 // Private helper functions
 // ----------------------------------------------------------------------
 
-Fw::Success::T DpWriter::deserializePacketHeader(Fw::Buffer& buffer, Fw::DpContainer& container) {
+Fw::Success::T DpWriter::deserializePacketHeader(Fw::DpContainer& container) {
     Fw::Success::T status = Fw::Success::SUCCESS;
-    container.setBuffer(buffer);
+    // The container already holds the buffer; there is no second handle on it to set here
     const Fw::SerializeStatus serialStatus = container.deserializeHeader();
     if (serialStatus != Fw::FW_SERIALIZE_OK) {
-        this->log_WARNING_HI_InvalidHeader(static_cast<U32>(buffer.getSize()), static_cast<U32>(serialStatus));
+        this->log_WARNING_HI_InvalidHeader(static_cast<U32>(container.getBuffer().getSize()),
+                                           static_cast<U32>(serialStatus));
         status = Fw::Success::FAILURE;
     }
     return status;

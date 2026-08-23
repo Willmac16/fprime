@@ -49,8 +49,8 @@ module Fw {
   port DpResponse(
       @ The container ID
       $id: FwDpIdType
-      @ The buffer
-      buffer: Fw.Buffer
+      @ The buffer, handed over to the receiver
+      ref buffer: Fw.Buffer
       @ The status
       status: Fw.Success
   )
@@ -59,8 +59,8 @@ module Fw {
   port DpSend(
       @ The container ID
       $id: FwDpIdType
-      @ The buffer
-      buffer: Fw.Buffer
+      @ The buffer, handed over to the receiver
+      ref buffer: Fw.Buffer
   )
 
 }

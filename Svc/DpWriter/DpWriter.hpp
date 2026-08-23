@@ -74,8 +74,7 @@ class DpWriter final : public DpWriterComponentBase {
 
     //! Deserialize the packet header
     //! \return Success or failure
-    Fw::Success::T deserializePacketHeader(Fw::Buffer& buffer,         //!< The packet buffer
-                                           Fw::DpContainer& container  //!< The container
+    Fw::Success::T deserializePacketHeader(Fw::DpContainer& container  //!< The container, holding the packet buffer
     );
 
     //! Perform processing on a packet buffer

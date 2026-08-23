@@ -133,6 +133,7 @@ bool Buffer::operator==(const Buffer& src) const {
            (this->m_size == src.m_size) && (this->m_capacity == src.m_capacity) && (this->m_context == src.m_context);
 }
 
+#if !FW_BUFFER_STRICT_OWNERSHIP
 Buffer Buffer::alias() const {
     // Deliberately leaves m_ownership at NOT_OWNED: an alias is another reference, not another owner
     Buffer aliased;
@@ -146,6 +147,7 @@ Buffer Buffer::alias() const {
     }
     return aliased;
 }
+#endif
 
 void Buffer::claim() {
     FW_ASSERT(this->isValid());

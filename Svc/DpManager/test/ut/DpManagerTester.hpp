@@ -45,7 +45,7 @@ class DpManagerTester : public DpManagerGTestBase {
     //! Handler for from_productResponseOut
     void from_productResponseOut_handler(const FwIndexType portNum,  //!< The port number
                                          FwDpIdType id,              //!< The container ID
-                                         const Fw::Buffer& buffer,   //!< The buffer
+                                         Fw::Buffer& buffer,         //!< The buffer, handed over to the tester
                                          const Fw::Success& status   //!< The status
     );
 

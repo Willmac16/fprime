@@ -381,8 +381,9 @@ Fw::Buffer GenericHubTester ::from_allocate_handler(const FwIndexType portNum, c
     EXPECT_EQ(m_allocate.getData(), nullptr) << "Allocation buffer is still in use";
     EXPECT_LE(size, sizeof(m_data_for_allocation)) << "Allocation buffer size mismatch";
     m_allocate.set(m_data_for_allocation, size);
-    // The tester keeps m_allocate to check the matching deallocation, so this hands out an explicit alias
-    return m_allocate.alias();
+    // Hand the buffer over rather than keeping a second reference to it; the matching deallocation is checked
+    // against the backing array, which the tester still owns.
+    return Fw::move(m_allocate);
 }
 
 void GenericHubTester ::from_bufferInReturn_handler(const FwIndexType portNum, Fw::Buffer& fwBuffer) {

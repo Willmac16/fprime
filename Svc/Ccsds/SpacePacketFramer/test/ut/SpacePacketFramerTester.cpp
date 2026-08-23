@@ -82,7 +82,7 @@ void SpacePacketFramerTester::testNominalFraming() {
 
     // Check dataOut
     ASSERT_from_dataOut_SIZE(1);
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     ASSERT_EQ(outBuffer.getSize(), sizeof(payload) + SpacePacketHeader::SERIALIZED_SIZE);
 
     // Deserialize and verify the SpacePacket header
@@ -138,7 +138,7 @@ void SpacePacketFramerTester ::testOversizedAllocatorBufferIsTrimmed() {
 
     const FwSizeType expectedFrameSize = sizeof(payload) + SpacePacketHeader::SERIALIZED_SIZE;
 
-    Fw::Buffer outBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::Buffer& outBuffer = this->fromPortHistory_dataOut->at(0).data;
     // If setSize() is missing from SpacePacketFramer, getSize() returns the
     // oversized allocation (2 * expectedFrameSize) and this assertion fails.
     ASSERT_EQ(outBuffer.getSize(), expectedFrameSize);

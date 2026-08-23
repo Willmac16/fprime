@@ -59,7 +59,8 @@ void checkHeader(FwDpIdType id, Fw::Buffer& buffer, DpContainer& container) {
     header.check(__FILE__, __LINE__, buffer, id, priority, timeTag, procTypes, userData, dpState, DATA_SIZE);
     // Test deserialization: Deserialize the header into a new container
     DpContainer deserContainer;
-    deserContainer.setBuffer(container.getBuffer());
+    // A second view over the test's own static array, wrapped afresh rather than taken from the container
+    deserContainer.setBuffer(Fw::Buffer(bufferData, sizeof bufferData));
     const Fw::SerializeStatus serialStatus = deserContainer.deserializeHeader();
     ASSERT_EQ(serialStatus, Fw::FW_SERIALIZE_OK);
     // Clear out the header in the buffer
@@ -109,7 +110,7 @@ TEST(Header, BufferInConstructor) {
     // Use the buffer to create a container
     const FwDpIdType id =
         static_cast<FwDpIdType>(STest::Pick::lowerUpper(0, static_cast<U32>(std::numeric_limits<FwDpIdType>::max())));
-    DpContainer container(id, buffer);
+    DpContainer container(id, Fw::Buffer(bufferData, sizeof bufferData));
     // Check the header
     checkHeader(id, buffer, container);
     // Check the buffers
@@ -149,7 +150,7 @@ TEST(Header, BufferSet) {
         static_cast<FwDpIdType>(STest::Pick::lowerUpper(0, static_cast<U32>(std::numeric_limits<FwDpIdType>::max())));
     DpContainer container;
     container.setId(id);
-    container.setBuffer(buffer);
+    container.setBuffer(Fw::Buffer(bufferData, sizeof bufferData));
     // Check the header
     checkHeader(id, buffer, container);
     // Check the buffers
@@ -173,7 +174,7 @@ TEST(Header, BadPacketDescriptor) {
     ASSERT_EQ(status, Fw::FW_SERIALIZE_OK);
     // Use the buffer to create a container
     DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(Fw::Buffer(bufferData, sizeof bufferData));
     // Deserialize the header
     const Fw::SerializeStatus serialStatus = container.deserializeHeader();
     // Check the error

@@ -66,7 +66,7 @@ class DpManager final : public DpManagerComponentBase {
     //! Handler implementation for productSendIn
     void productSendIn_handler(const FwIndexType portNum,  //!< The port number
                                FwDpIdType id,              //!< The container ID
-                               const Fw::Buffer& buffer    //!< The buffer
+                               Fw::Buffer& buffer          //!< The buffer, forwarded on productSendOut
                                ) final;
 
     //! Handler implementation for schedIn

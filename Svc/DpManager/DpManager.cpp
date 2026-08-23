@@ -41,16 +41,15 @@ void DpManager::productRequestIn_handler(const FwIndexType portNum, FwDpIdType i
     this->productResponseOut_out(portNum, id, buffer, status);
 }
 
-void DpManager::productSendIn_handler(const FwIndexType portNum, FwDpIdType id, const Fw::Buffer& buffer) {
+void DpManager::productSendIn_handler(const FwIndexType portNum, FwDpIdType id, Fw::Buffer& buffer) {
     // id is unused
     (void)id;
     // Update state variables
     ++this->numDataProducts;
     this->numBytes += buffer.getSize();
-    // Send the buffer on productSendOut. The handler takes the buffer by const reference but the output port needs
-    // a mutable one, so this aliases rather than forwards. Remove once the autocoded handler signature allows it.
-    Fw::Buffer sendBuffer = buffer.alias();
-    this->productSendOut_out(portNum, sendBuffer);
+    // Forward the buffer on productSendOut. DpManager is a conduit here: it never holds the packet, so it hands on
+    // the very buffer it was given rather than making a second reference to it.
+    this->productSendOut_out(portNum, buffer);
 }
 
 void DpManager::schedIn_handler(const FwIndexType portNum, U32 context) {

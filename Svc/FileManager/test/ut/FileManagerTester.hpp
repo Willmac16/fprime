@@ -206,8 +206,8 @@ class FileManagerTester : public FileManagerGTestBase {
                                       ) override;
 
     //! Handler for the data product send port; records the sent container
-    void productSend_handler(FwDpIdType id,            //!< The container ID
-                             const Fw::Buffer& buffer  //!< The buffer
+    void productSend_handler(FwDpIdType id,      //!< The container ID
+                             Fw::Buffer& buffer  //!< The buffer, handed over to the tester
                              ) override;
 
     //! Reset the data product bookkeeping between tests

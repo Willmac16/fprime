@@ -63,7 +63,7 @@ void FprimeFramerTester ::testNominalFraming() {
     ASSERT_from_dataReturnOut_SIZE(1);  // Original data buffer ownership returned
 
     // Aliased rather than referenced: getDeserializer() below is non-const
-    Fw::Buffer outputBuffer = this->fromPortHistory_dataOut->at(0).data.alias();
+    Fw::Buffer& outputBuffer = this->fromPortHistory_dataOut->at(0).data;
     // Check the size of the output buffer
     ASSERT_EQ(outputBuffer.getSize(), sizeof(bufferData) + FprimeProtocol::FrameHeader::SERIALIZED_SIZE +
                                           FprimeProtocol::FrameTrailer::SERIALIZED_SIZE);
@@ -90,8 +90,9 @@ Fw::Buffer FprimeFramerTester::from_bufferAllocate_handler(FwIndexType portNum, 
     FwSizeType allocatedSize = this->m_useOversizedAlloc ? sizeof(this->m_buffer_slot) : size;
     this->m_buffer.set(this->m_buffer_slot, allocatedSize);
     ::memset(this->m_buffer.getData(), 0, allocatedSize);
-    // The tester keeps m_buffer to check what it handed out, so this hands out an explicit alias
-    return this->m_buffer.alias();
+    // Hand the buffer over. The tester cannot keep a second reference to memory it has given away, so what it
+    // checks against afterwards is its own backing array, which it still owns.
+    return Fw::move(this->m_buffer);
 }
 
 // ----------------------------------------------------------------------
@@ -114,7 +115,7 @@ void FprimeFramerTester::testOversizedAllocatorBufferIsTrimmed() {
     ASSERT_from_dataOut_SIZE(1);
     ASSERT_from_dataReturnOut_SIZE(1);
 
-    const Fw::Buffer& outputBuffer = this->fromPortHistory_dataOut->at(0).data;
+    Fw::Buffer& outputBuffer = this->fromPortHistory_dataOut->at(0).data;
     FwSizeType expectedSize = sizeof(bufferData) + FprimeProtocol::FrameHeader::SERIALIZED_SIZE +
                               FprimeProtocol::FrameTrailer::SERIALIZED_SIZE;
     ASSERT_EQ(outputBuffer.getSize(), expectedSize);

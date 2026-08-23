@@ -35,7 +35,8 @@ void ComAggregator ::comStatusIn_handler(FwIndexType portNum, Fw::Success& condi
 }
 
 void ComAggregator ::dataIn_handler(FwIndexType portNum, Fw::Buffer& data, const ComCfg::FrameContext& context) {
-    Svc::ComDataContextPair pair(data, context);
+    // The pair takes the buffer: it carries the packet into the state machine, and this handler keeps nothing
+    Svc::ComDataContextPair pair(Fw::move(data), context);
     this->aggregationMachine_sendSignal_fill(pair);
 }
 
@@ -79,14 +80,15 @@ void ComAggregator ::Svc_AggregationMachine_action_doClear(SmId smId, Svc_Aggreg
 
 void ComAggregator ::Svc_AggregationMachine_action_doFill(SmId smId,
                                                           Svc_AggregationMachine::Signal signal,
-                                                          const Svc::ComDataContextPair& value) {
+                                                          Svc::ComDataContextPair& value) {
     Fw::SerializeStatus status = this->m_frameSerializer.serializeFrom(
         value.get_data().getData(), value.get_data().getSize(), Fw::Serialization::OMIT_LENGTH);
     FW_ASSERT(status == Fw::SerializeStatus::FW_SERIALIZE_OK);
     this->m_lastContext = value.get_context();
     Fw::Success good = Fw::Success::SUCCESS;
-    // Return port does not alter data and thus const-cast is safe
-    this->dataReturnOut_out(0, const_cast<Fw::Buffer&>(value.get_data()), value.get_context());
+    // Hand the packet back on the return port. The value is mutable now that it carries a buffer, so this passes
+    // the buffer itself rather than casting away constness to get at it.
+    this->dataReturnOut_out(0, value.get_data(), value.get_context());
     this->comStatusOut_out(0, good);
 }
 
@@ -104,9 +106,9 @@ void ComAggregator ::Svc_AggregationMachine_action_doSend(SmId smId, Svc_Aggrega
 
 void ComAggregator ::Svc_AggregationMachine_action_doHold(SmId smId,
                                                           Svc_AggregationMachine::Signal signal,
-                                                          const Svc::ComDataContextPair& value) {
+                                                          Svc::ComDataContextPair& value) {
     FW_ASSERT(not this->m_held.get_data().isValid());
-    this->m_held = value;
+    this->m_held = Fw::move(value);
 }
 
 void ComAggregator ::Svc_AggregationMachine_action_assertNoStatus(SmId smId, Svc_AggregationMachine::Signal signal) {
@@ -120,7 +122,7 @@ void ComAggregator ::Svc_AggregationMachine_action_assertNoStatus(SmId smId, Svc
 
 bool ComAggregator ::Svc_AggregationMachine_guard_isFull(SmId smId,
                                                          Svc_AggregationMachine::Signal signal,
-                                                         const Svc::ComDataContextPair& value) const {
+                                                         Svc::ComDataContextPair& value) const {
     FW_ASSERT(value.get_data().getSize() <= ComCfg::AggregationSize);
     const FwSizeType remaining = this->m_frameSerializer.getCapacity() - this->m_frameSerializer.getSize();
     return (remaining < value.get_data().getSize());
@@ -128,7 +130,7 @@ bool ComAggregator ::Svc_AggregationMachine_guard_isFull(SmId smId,
 
 bool ComAggregator ::Svc_AggregationMachine_guard_willFill(SmId smId,
                                                            Svc_AggregationMachine::Signal signal,
-                                                           const Svc::ComDataContextPair& value) const {
+                                                           Svc::ComDataContextPair& value) const {
     FW_ASSERT(value.get_data().getSize() <= ComCfg::AggregationSize);
     const FwSizeType remaining = this->m_frameSerializer.getCapacity() - this->m_frameSerializer.getSize();
     return (remaining == value.get_data().getSize());

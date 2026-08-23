@@ -48,7 +48,7 @@ Fw::Buffer DpManagerTester::from_bufferGetOut_handler(const FwIndexType portNum,
 
 void DpManagerTester::from_productResponseOut_handler(const FwIndexType portNum,
                                                       FwDpIdType id,
-                                                      const Fw::Buffer& buffer,
+                                                      Fw::Buffer& buffer,
                                                       const Fw::Success& status) {
     this->abstractState.productResponseOutPortNumOpt = Fw::Optional<FwIndexType>(portNum);
     this->pushFromPortEntry_productResponseOut(id, buffer, status);
