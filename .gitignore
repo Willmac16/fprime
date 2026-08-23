@@ -125,3 +125,6 @@ temp_dir/
 *.exe
 *.out
 *.app
+
+# Temporary FPP locations file written by the topology analysis tests
+.fpp-analysis-test-locs.fpp
