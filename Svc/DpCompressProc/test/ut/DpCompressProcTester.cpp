@@ -78,13 +78,15 @@ Svc::CompressionAlgorithm DpCompressProcTester ::from_compressChunk_handler(FwIn
     }
 }
 
-void DpCompressProcTester::uncompress_data(const Fw::Buffer& container_buf,
+void DpCompressProcTester::uncompress_data(Fw::Buffer& container_buf,
                                            const FwSizeStoreType chunk_size,
                                            std::vector<U8>& out_vec) {
     std::vector<U8> out_tmp;
 
-    Fw::DpContainer container(0, container_buf);
+    // Lend the packet to a container to read its header, then take it straight back
+    Fw::DpContainer container(0, Fw::move(container_buf));
     container.deserializeHeader();
+    container_buf = Fw::move(container.getBuffer());
 
     Fw::Buffer data_buf(container_buf.getData() + Fw::DpContainer::DATA_OFFSET, container.getDataSize());
 
@@ -192,8 +194,10 @@ void DpCompressProcTester::test_chunks_helper(const FwSizeStoreType chunk_size,
         ASSERT_EVENTS_DidNotCompress_SIZE(1);
     }
 
-    Fw::DpContainer container_out(0, container_buf);
+    // Lend the packet to a container to read its header, then take it straight back
+    Fw::DpContainer container_out(0, Fw::move(container_buf));
     container_out.deserializeHeader();
+    container_buf = Fw::move(container_out.getBuffer());
 
     if (should_compress) {
         // Expect compressed chunks to compress by 50%
@@ -239,9 +243,11 @@ void DpCompressProcTester::test_undersized_buffer() {
     U8* mem = new U8[backing_size]();
 
     Fw::Buffer backing_buf(mem, backing_size);
-    Fw::DpContainer container(0, backing_buf);
+    // Lend the packet to a container to write its header, then take it straight back
+    Fw::DpContainer container(0, Fw::move(backing_buf));
     container.setDataSize(1);
     container.serializeHeader();
+    backing_buf = Fw::move(container.getBuffer());
 
     // One byte short of the minimum
     const FwSizeType short_size = Fw::DpContainer::MIN_PACKET_SIZE - 1;
@@ -277,9 +283,11 @@ void DpCompressProcTester::test_oversized_buffer() {
     U8* mem = new U8[backing_size]();
 
     Fw::Buffer container_buf(mem, backing_size);
-    Fw::DpContainer container(0, container_buf);
+    // Lend the packet to a container to write its header, then take it straight back
+    Fw::DpContainer container(0, Fw::move(container_buf));
     container.setDataSize(backing_size - Fw::DpContainer::MIN_PACKET_SIZE);
     container.serializeHeader();
+    container_buf = Fw::move(container.getBuffer());
 
     this->invoke_to_procRequest(0, container_buf);
 

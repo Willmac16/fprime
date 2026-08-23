@@ -47,9 +47,11 @@ void TestState ::action__BufferSendIn__OK() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Deserialize the container header
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     const Fw::SerializeStatus status = container.deserializeHeader();
     ASSERT_EQ(status, Fw::FW_SERIALIZE_OK);
     // Check events
@@ -110,9 +112,11 @@ void TestState ::action__BufferSendIn__OKProcShrink() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Deserialize the container header
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     const Fw::SerializeStatus status = container.deserializeHeader();
     ASSERT_EQ(status, Fw::FW_SERIALIZE_OK);
     // Check events
@@ -163,6 +167,8 @@ void TestState ::action__BufferSendIn__InvalidBuffer() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_invalidBufferEventCount < Svc::DpWriterTester::getInvalidBufferThrottle()) {
         ASSERT_EVENTS_SIZE(1);
@@ -200,6 +206,8 @@ void TestState ::action__BufferSendIn__BufferTooSmallForPacket() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_bufferTooSmallForPacketEventCount <
         Svc::DpWriterTester::getBufferTooSmallForPacketThrottle()) {
@@ -235,7 +243,7 @@ void TestState ::action__BufferSendIn__InvalidHeaderHash() {
     Fw::Buffer buffer = this->abstractState.getDpBuffer();
     // Set up the container
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     // Get the header hash
     const U32 computedHash = container.getHeaderHash().asBigEndianU32();
     // Perturb the header hash
@@ -247,6 +255,8 @@ void TestState ::action__BufferSendIn__InvalidHeaderHash() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_invalidHeaderHashEventCount < Svc::DpWriterTester::getInvalidHeaderHashThrottle()) {
         ASSERT_EVENTS_SIZE(1);
@@ -285,11 +295,13 @@ void TestState ::action__BufferSendIn__InvalidHeader() {
     buffAddr[0]++;
     // Update the header hash
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     container.updateHeaderHash();
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_invalidHeaderEventCount < Svc::DpWriterTester::getInvalidHeaderThrottle()) {
         ASSERT_EVENTS_SIZE(1);
@@ -324,7 +336,7 @@ void TestState ::action__BufferSendIn__BufferTooSmallForData() {
     Fw::Buffer buffer = this->abstractState.getDpBuffer();
     // Set up the container
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     // Invalidate the data size
     Fw::SerializeStatus serialStatus = container.deserializeHeader();
     ASSERT_EQ(serialStatus, Fw::FW_SERIALIZE_OK);
@@ -336,6 +348,8 @@ void TestState ::action__BufferSendIn__BufferTooSmallForData() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_bufferTooSmallForDataEventCount < Svc::DpWriterTester::getInvalidHeaderThrottle()) {
         ASSERT_EVENTS_SIZE(1);
@@ -375,11 +389,13 @@ void TestState ::action__BufferSendIn__FileOpenError() {
     Fw::Buffer buffer = this->abstractState.getDpBuffer();
     // Set up the container
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     container.deserializeHeader();
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_fileOpenErrorEventCount < Svc::DpWriterTester::getFileOpenErrorThrottle()) {
         ASSERT_EVENTS_SIZE(1);
@@ -424,7 +440,7 @@ void TestState ::action__BufferSendIn__FileWriteError() {
     Fw::Buffer buffer = this->abstractState.getDpBuffer();
     // Set up the container
     Fw::DpContainer container;
-    container.setBuffer(buffer);
+    container.setBuffer(this->abstractState.viewDpBuffer());
     container.deserializeHeader();
     // Get the file size
     const FwSizeType fileSize = container.getPacketSize();
@@ -437,6 +453,8 @@ void TestState ::action__BufferSendIn__FileWriteError() {
     // Send the buffer
     this->invoke_to_bufferSendIn(0, buffer);
     this->doDispatch();
+    // The component took the buffer; rebuild this test's own view of the backing array to read it back
+    buffer = this->abstractState.viewDpBuffer();
     // Check events
     if (this->abstractState.m_fileWriteErrorEventCount < Svc::DpWriterTester::getFileWriteErrorThrottle()) {
         ASSERT_EVENTS_SIZE(1);

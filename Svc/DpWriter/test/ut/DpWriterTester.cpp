@@ -39,10 +39,12 @@ void DpWriterTester::from_procBufferSendOut_handler(FwIndexType portNum, Fw::Buf
     if (this->abstractState.m_procShrinkDataSizeOpt.has_value()) {
         // Update the data size in the container
         const FwSizeType newSize = this->abstractState.m_procShrinkDataSizeOpt.value();
-        Fw::DpContainer c(0, buffer);
+        // Lend the packet to a container to rewrite its header, then take it straight back
+        Fw::DpContainer c(0, Fw::move(buffer));
         c.deserializeHeader();
         c.setDataSize(newSize);
         c.serializeHeader();
+        buffer = Fw::move(c.getBuffer());
     }
 }
 

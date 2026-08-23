@@ -73,6 +73,11 @@ class AbstractState {
     //! \return The buffer
     Fw::Buffer getDpBuffer();
 
+    //! Get a fresh view over the data product backing array
+    //!
+    //! Use this to inspect what the component wrote after the buffer has been handed over to it.
+    Fw::Buffer viewDpBuffer();
+
     //! Get a data product buffer backed by bufferData
     //! \return The buffer
     Fw::Buffer getDpBufferWithProc(Fw::DpCfg::ProcType::SerialType procTypes);
@@ -128,6 +133,9 @@ class AbstractState {
 
     //! Data for buffers
     U8 m_bufferData[MAX_BUFFER_SIZE] = {};
+
+    //! The size of the last data product buffer handed out, for rebuilding a view of it
+    FwSizeType m_dpBufferSize = 0;
 
     //! Data for write results
     U8 m_writeResultData[MAX_BUFFER_SIZE] = {};

@@ -44,10 +44,11 @@ Fw::Buffer AbstractState::getDpBufferWithProc(Fw::DpCfg::ProcType::SerialType pr
     const FwSizeType bufferSize = Fw::DpContainer::getPacketSizeForDataSize(dataSize);
     FW_ASSERT(bufferSize <= MAX_BUFFER_SIZE, static_cast<FwAssertArgType>(bufferSize),
               static_cast<FwAssertArgType>(MAX_BUFFER_SIZE));
-    // Create the buffer
+    // Create the buffer, and remember its size so a view of the backing array can be rebuilt later
+    this->m_dpBufferSize = bufferSize;
     Fw::Buffer buffer(this->m_bufferData, static_cast<Fw::Buffer::SizeType>(bufferSize));
-    // Create the container
-    Fw::DpContainer container(id, buffer);
+    // Lend the buffer to a container to write the header, then take it back to return it
+    Fw::DpContainer container(id, Fw::move(buffer));
     // Update the priority
     const FwDpPriorityType priority = STest::Pick::lowerUpper(std::numeric_limits<FwDpPriorityType>::min(),
                                                               std::numeric_limits<FwDpPriorityType>::max());
@@ -70,8 +71,16 @@ Fw::Buffer AbstractState::getDpBufferWithProc(Fw::DpCfg::ProcType::SerialType pr
     for (FwSizeType i = 0; i <= dataSize; i++) {
         dataPtr[i] = static_cast<U8>(STest::Pick::any());
     }
-    // Return the buffer
+    // Take the buffer back from the container and return it
+    buffer = Fw::move(container.getBuffer());
     return buffer;
+}
+
+Fw::Buffer AbstractState ::viewDpBuffer() {
+    // A fresh view over the test's own backing array. The component takes the buffer this state handed it, so a
+    // test that wants to read back what was written wraps the array again rather than keeping a second handle on
+    // memory it gave away.
+    return Fw::Buffer(this->m_bufferData, static_cast<Fw::Buffer::SizeType>(this->m_dpBufferSize));
 }
 
 }  // namespace Svc

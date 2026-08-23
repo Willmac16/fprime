@@ -251,7 +251,7 @@ Fw::String DpCatalogTester::genDP(FwDpIdType id,
     const FwSizeType packetSize = Fw::DpContainer::getPacketSizeForDataSize(dataSize);
     std::vector<U8> packetData(packetSize);
     Fw::Buffer packetBuffer(packetData.data(), packetSize);
-    Fw::DpContainer cont(id, packetBuffer);
+    Fw::DpContainer cont(id, Fw::move(packetBuffer));
     cont.setPriority(prio);
     cont.setTimeTag(time);
     cont.setDpState(dpState);
@@ -781,7 +781,7 @@ void DpCatalogTester::test_TruncatedDpRejected() {
     Fw::Time time(1000, 100);
     std::vector<U8> packetData(Fw::DpContainer::MIN_PACKET_SIZE);
     Fw::Buffer packetBuffer(packetData.data(), Fw::DpContainer::MIN_PACKET_SIZE);
-    Fw::DpContainer container(id, packetBuffer);
+    Fw::DpContainer container(id, Fw::move(packetBuffer));
     container.setPriority(priority);
     container.setTimeTag(time);
     container.setDpState(Fw::DpState::UNTRANSMITTED);

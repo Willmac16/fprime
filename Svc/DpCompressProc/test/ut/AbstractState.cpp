@@ -31,11 +31,13 @@ Fw::Buffer AbstractState::build_compress_buffer(FwSizeStoreType chunk_size, std:
     }
 
     Fw::Buffer buf(mem, mem_size);
-    Fw::DpContainer container(0, buf);
+    // Lend the packet to a container to write its header, then take it back to return it
+    Fw::DpContainer container(0, Fw::move(buf));
 
     container.setDataSize(chunk_size * chunks.size());
     container.serializeHeader();
 
+    buf = Fw::move(container.getBuffer());
     return buf;
 }
 
